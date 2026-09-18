@@ -1,0 +1,2906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wow PDF Viewer</title>
+<style>
+  * { box-sizing: border-box; }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes fadeInUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes panelPopIn { from { opacity: 0; transform: scale(0.94) translateY(6px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  @keyframes quickPanelSlideIn { from { opacity: 0; transform: translateY(18px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes toastPopIn { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @keyframes pageFadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes highlightPopIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+
+  @media (min-width: 900px) {
+    body {
+      font-size: 15px;
+    }
+    #open-screen h1 {
+      font-size: 34px;
+    }
+    #open-screen p {
+      max-width: 760px;
+      font-size: 15px;
+    }
+    #open-btn {
+      font-size: 22px;
+      padding: 20px 42px;
+    }
+    #menu-panel,
+    #ai-panel {
+      width: min(760px, 64vw);
+    }
+    #quick-ai-panel {
+      width: min(420px, 32vw);
+    }
+    .menu-btn:hover,
+    .tab-close-btn:hover,
+    .tab-mark-btn:hover,
+    .db-crumb-btn:hover,
+    .db-entry-btn:hover,
+    .library-entry-btn:hover,
+    .quick-preset-btn:hover,
+    .quick-ai-small-btn:hover,
+    .quick-scroll-btn:hover,
+    #open-btn:hover,
+    #quick-ai-close:hover,
+    #quick-ai-cite:hover,
+    #ai-fetch-models-btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255, 207, 77, 0.8);
+      box-shadow: 0 6px 18px rgba(91, 140, 255, 0.12);
+    }
+    .menu-btn:focus-visible,
+    .tab-close-btn:focus-visible,
+    .tab-mark-btn:focus-visible,
+    .db-crumb-btn:focus-visible,
+    .db-entry-btn:focus-visible,
+    .library-entry-btn:focus-visible,
+    .quick-preset-btn:focus-visible,
+    .quick-ai-small-btn:focus-visible,
+    .quick-scroll-btn:focus-visible,
+    #open-btn:focus-visible,
+    #quick-ai-close:focus-visible,
+    #quick-ai-cite:focus-visible,
+    #ai-fetch-models-btn:focus-visible {
+      outline: none;
+    }
+  }
+
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: #000; color: #eee;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    overflow: hidden;
+  }
+
+  /* ---------- File-select screen ---------- */
+  #open-screen {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px; background: #0a0a0c; z-index: 10;
+    animation: fadeInUp 0.5s ease-out;
+  }
+  #open-screen.hidden { display: none; }
+  #open-screen h1 { font-size: 22px; font-weight: 600; color: #f2f2f4; margin: 0; }
+  .start-actions {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+  }
+  .start-actions-row {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 12px;
+  }
+  #open-btn,
+  .secondary-btn {
+    background: #5b8cff; color: #0a0a0c; border: 4px solid transparent;
+    border-radius: 12px; padding: 18px 36px; font-size: 20px; font-weight: 700;
+    cursor: pointer; outline: none;
+    transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+  .secondary-btn {
+    background: rgba(91, 140, 255, 0.12); color: #dfe8ff; border-color: rgba(91, 140, 255, 0.6);
+    font-size: 16px; padding: 14px 22px; font-weight: 600;
+  }
+  #open-btn.focused,
+  .secondary-btn.focused { border-color: #ffcf4d; transform: scale(1.05); box-shadow: 0 0 0 8px rgba(255,207,77,0.15); }
+  #open-btn:active,
+  .secondary-btn:active { transform: scale(0.97); }
+  #open-screen p { color: #888; font-size: 14px; max-width: 480px; text-align: center; }
+
+  /* ---------- Viewer (fills the entire screen, no permanent chrome) ---------- */
+  #viewer-area {
+    position: fixed; inset: 0;
+    display: none;
+    background: #000;
+  }
+  #viewer-area.active { display: flex; }
+  #viewer-area.split .pane { border-right: 2px solid #222; }
+  #viewer-area.split .pane:last-child { border-right: none; }
+
+  .pane {
+    flex: 1; min-width: 0; overflow: auto; position: relative;
+    scroll-behavior: auto;
+    transition: box-shadow .15s ease;
+  }
+  .pane:not([hidden]) { animation: fadeIn .2s ease-out; }
+  .pane.pane-active { box-shadow: inset 0 0 0 3px #5b8cff; }
+  .pane[hidden] { display: none; }
+
+  .pdf-page-wrap { display: block; padding: 4px 0; position: relative; }
+  .pdf-page-canvas { display: block; margin: 0 auto; animation: pageFadeIn .25s ease-out; }
+
+  .pdf-page-highlight-layer {
+    position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+    pointer-events: none;
+  }
+  .ai-highlight-box {
+    position: absolute; border: 2px solid #ffcf4d; background: rgba(255, 207, 77, 0.22);
+    border-radius: 4px; box-shadow: 0 0 0 2px rgba(0,0,0,0.4);
+    animation: highlightPopIn .2s cubic-bezier(.34,1.56,.64,1);
+  }
+
+  .pane-empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #666; font-size: 14px; text-align: center; padding: 20px;
+    animation: fadeIn .3s ease-out;
+  }
+
+  /* ---------- Status toast ---------- */
+  #status {
+    position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 0);
+    background: #1a1b20; color: #eee; padding: 10px 18px; border-radius: 8px;
+    font-size: 14px; z-index: 30; display: none; border-left: 4px solid #5b8cff;
+    max-width: 80vw; text-align: center;
+  }
+  #status.error { border-left-color: #ff5b6a; }
+  #status.show { display: block; animation: toastPopIn .22s cubic-bezier(.2,.9,.3,1); }
+
+  #viewer-toolbar {
+    position: fixed; right: 16px; bottom: 16px; z-index: 35;
+    display: none; flex-wrap: wrap; gap: 8px; justify-content: flex-end;
+    max-width: min(92vw, 420px);
+  }
+  #viewer-toolbar.visible { display: flex; }
+  .toolbar-btn {
+    min-width: 52px; min-height: 46px; border: 2px solid transparent; border-radius: 12px;
+    background: rgba(23, 24, 29, 0.9); color: #eee; font-size: 13px; font-weight: 600;
+    padding: 10px 12px; cursor: pointer; outline: none;
+    transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease, background .12s ease;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+  }
+  .toolbar-btn.focused, .toolbar-btn:focus-visible { border-color: #ffcf4d; box-shadow: 0 0 0 4px rgba(255,207,77,0.15); transform: translateY(-1px); }
+  .toolbar-btn.primary { background: #5b8cff; color: #0a0a0c; }
+  .toolbar-btn.warning { background: rgba(224,169,74,0.9); color: #0a0a0c; }
+  .toolbar-btn.danger { background: rgba(255,91,106,0.85); color: #fff; }
+
+  /* ---------- Hidden menu ---------- */
+  #menu-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.82);
+    display: none; align-items: center; justify-content: center; z-index: 40;
+  }
+  #menu-overlay.open { display: flex; animation: fadeIn .15s ease-out; }
+  #menu-panel {
+    background: #17181d; color: #eee; width: min(640px, 92vw);
+    max-height: 86vh; overflow-y: auto; border-radius: 16px;
+    padding: 26px 30px; border: 2px solid #5b8cff;
+  }
+  #menu-overlay.open #menu-panel { animation: panelPopIn .2s cubic-bezier(.2,.9,.3,1); }
+  #menu-panel h2 { margin-top: 0; color: #5b8cff; font-size: 20px; }
+  #menu-panel h3 { font-size: 13px; color: #9a9ca3; text-transform: uppercase; letter-spacing: 0.5px; margin: 22px 0 10px; }
+  .menu-hint { color: #9a9ca3; font-size: 12px; margin-top: 4px; }
+
+  .menu-btn {
+    display: block; width: 100%; text-align: left;
+    background: #202229; color: #eee; border: 3px solid transparent;
+    border-radius: 10px; padding: 12px 16px; font-size: 15px;
+    margin-bottom: 8px; cursor: pointer; outline: none;
+    transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease;
+  }
+  .menu-btn.focused, .menu-btn:focus-visible { border-color: #ffcf4d; box-shadow: 0 0 0 4px rgba(255,207,77,0.15); transform: scale(1.02); }
+  .menu-btn.active-state { background: #5b8cff; color: #0a0a0c; font-weight: 700; }
+
+  .tab-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 8px; }
+  .tab-row .menu-btn { margin-bottom: 0; flex: 1; }
+  .tab-close-btn {
+    background: #202229; color: #ff5b6a; border: 3px solid transparent;
+    border-radius: 10px; padding: 12px 16px; font-size: 15px; cursor: pointer; outline: none;
+    transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease;
+  }
+  .tab-close-btn.focused, .tab-close-btn:focus-visible { border-color: #ffcf4d; box-shadow: 0 0 0 4px rgba(255,207,77,0.15); transform: scale(1.05); }
+  .tab-mark-btn {
+    background: #202229; color: #e0a94a; border: 3px solid transparent;
+    border-radius: 10px; padding: 12px 10px; font-size: 13px; cursor: pointer; outline: none;
+    transition: transform .12s ease, border-color .12s ease, background .15s ease, box-shadow .12s ease;
+  }
+  .tab-mark-btn.focused, .tab-mark-btn:focus-visible { border-color: #ffcf4d; box-shadow: 0 0 0 4px rgba(255,207,77,0.15); transform: scale(1.03); }
+  .tab-mark-btn.marked { background: #e0a94a; color: #1a1a1a; font-weight: 700; }
+
+  #library-list { margin-top: 6px; }
+  .db-breadcrumb {
+    display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+    font-size: 12px; color: #9a9ca3; margin: 4px 0 10px;
+  }
+  .db-crumb-btn {
+    background: rgba(91,140,255,0.12); color: #a9c1ff; border: 2px solid transparent;
+    border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer;
+  }
+  .db-crumb-btn.focused { border-color: #ffcf4d; }
+  .db-crumb-sep { color: #555; }
+  #db-filelist { margin-top: 6px; margin-bottom: 6px; }
+  .db-entry-btn {
+    background: #202229; color: #eee; border: 3px solid transparent;
+    border-radius: 10px; padding: 12px 16px; font-size: 14px; cursor: pointer; outline: none;
+    text-align: left; width: 100%; margin-bottom: 8px;
+    transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease;
+  }
+  .db-entry-btn.focused, .db-entry-btn:focus-visible { border-color: #ffcf4d; box-shadow: 0 0 0 4px rgba(255,207,77,0.15); transform: scale(1.02); }
+  .db-entry-btn.is-folder { color: #5b8cff; font-weight: 600; }
+  .db-entry-btn.is-ms { color: #e0a94a; }
+  .db-entry-btn.is-report { color: #8fd19e; }
+  .db-empty-hint { color: #666; font-size: 12px; padding: 6px 0; }
+  .library-subject-header {
+    font-size: 12px; font-weight: 700; color: #5b8cff; margin: 12px 0 6px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .library-subject-header:first-child { margin-top: 0; }
+  .library-entry-btn {
+    background: #202229; color: #eee; border: 3px solid transparent;
+    border-radius: 10px; padding: 12px 16px; font-size: 14px; cursor: pointer; outline: none;
+    transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease;
+  }
+  .library-entry-btn.focused, .library-entry-btn:focus-visible { border-color: #ffcf4d; box-shadow: 0 0 0 4px rgba(255,207,77,0.15); transform: scale(1.02); }
+  .library-entry-btn.is-ms { color: #e0a94a; }
+  .library-empty-hint { color: #666; font-size: 12px; padding: 6px 0; }
+
+  /* ---------- AI Assist panel (full, via menu) ---------- */
+  #ai-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.82);
+    display: none; align-items: center; justify-content: center; z-index: 50;
+  }
+  #ai-overlay.open { display: flex; animation: fadeIn .15s ease-out; }
+  #ai-panel {
+    background: #17181d; color: #eee; width: min(620px, 92vw);
+    max-height: 88vh; overflow-y: auto; border-radius: 16px;
+    padding: 26px 30px; border: 2px solid #e0a94a;
+  }
+  #ai-overlay.open #ai-panel { animation: panelPopIn .2s cubic-bezier(.2,.9,.3,1); }
+  #ai-panel h2 { margin-top: 0; color: #e0a94a; font-size: 20px; }
+  .ai-row { margin-bottom: 14px; }
+  .ai-row label { display: block; font-size: 12px; color: #9a9ca3; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .ai-input {
+    width: 100%; background: #202229; color: #eee; border: 3px solid transparent;
+    border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: inherit; outline: none;
+    transition: border-color .12s ease, box-shadow .12s ease;
+  }
+  .ai-input.focused, .ai-input:focus-visible { border-color: #ffcf4d; box-shadow: 0 0 0 4px rgba(255,207,77,0.12); }
+  textarea.ai-input { resize: vertical; }
+  #ai-answer {
+    margin-top: 16px; padding: 14px; background: #0e0f12; border-radius: 10px;
+    font-size: 14px; line-height: 1.6; white-space: pre-wrap; max-height: 300px; overflow-y: auto;
+    display: none;
+  }
+  #ai-answer.show { display: block; animation: fadeIn .25s ease-out; }
+  #ai-answer.error { color: #ff5b6a; }
+  #ai-scroll-row { display: none; gap: 8px; margin-top: 8px; }
+  #ai-scroll-row.show { display: flex; animation: fadeIn .2s ease-out; }
+  #ai-cite-row { margin-top: 10px; display: none; }
+  #ai-cite-row.show { display: block; animation: fadeInUp .2s ease-out; }
+
+  /* ---------- Quick AI popup ---------- */
+  #quick-ai-panel {
+    position: fixed; bottom: 88px; right: 24px; z-index: 46;
+    width: min(340px, 88vw); max-height: 82vh;
+    background: rgba(20, 21, 26, 0.92);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1.5px solid rgba(224, 169, 74, 0.55);
+    border-radius: 18px; padding: 14px 14px 12px;
+    display: none; flex-direction: column; gap: 8px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  #quick-ai-panel.open { display: flex; animation: quickPanelSlideIn .22s cubic-bezier(.2,.9,.3,1); }
+  #quick-ai-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  #quick-ai-header h3 { margin: 0; font-size: 14px; color: #e0a94a; display: flex; align-items: center; gap: 6px; }
+  #quick-ai-close { background: none; border: none; color: #9a9ca3; font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 6px; transition: color .12s ease, box-shadow .12s ease, transform .12s ease; }
+  #quick-ai-close.focused { color: #ffcf4d; box-shadow: 0 0 0 2px #ffcf4d; transform: scale(1.1); }
+
+  #quick-ai-answer-wrap { flex: 1; min-height: 60px; display: flex; flex-direction: column; overflow: hidden; }
+  #quick-ai-answer {
+    background: rgba(14, 15, 18, 0.6); border-radius: 10px; padding: 12px;
+    font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-y: auto; flex: 1;
+    display: none;
+  }
+  #quick-ai-answer.show { display: block; animation: fadeIn .25s ease-out; }
+  #quick-ai-answer.error { color: #ff5b6a; }
+  #quick-ai-answer .katex { font-size: 1.05em; }
+  .md-table { border-collapse: collapse; margin: 8px 0; font-size: 0.92em; width: 100%; }
+  .md-table th, .md-table td { border: 1px solid rgba(255,255,255,0.18); padding: 5px 8px; text-align: left; }
+  .md-table th { background: rgba(255,255,255,0.08); }
+  #ai-answer .md-table th, #ai-answer .md-table td { border-color: rgba(255,255,255,0.15); }
+  #quick-ai-scroll-row { display: none; gap: 6px; margin-top: 6px; flex-shrink: 0; }
+  #quick-ai-scroll-row.show { display: flex; animation: fadeIn .2s ease-out; }
+  .quick-scroll-btn {
+    flex: 1; background: rgba(32, 34, 41, 0.85); color: #eee; border: 2px solid transparent;
+    border-radius: 8px; padding: 6px; font-size: 12px; cursor: pointer; text-align: center;
+    transition: border-color .12s ease, transform .12s ease;
+  }
+  .quick-scroll-btn.focused { border-color: #ffcf4d; transform: scale(1.04); }
+
+  .quick-preset-list { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+  #quick-ai-panel.has-answer .quick-preset-list { display: none; }
+  .quick-preset-btn {
+    text-align: left; background: rgba(32, 34, 41, 0.85); color: #eee;
+    border: 2px solid transparent; border-radius: 10px; padding: 9px 12px;
+    font-size: 13px; cursor: pointer; outline: none;
+    transition: border-color .12s ease, transform .12s ease;
+  }
+  .quick-preset-btn.focused, .quick-preset-btn:focus-visible { border-color: #ffcf4d; transform: scale(1.02); }
+
+  #quick-ai-custom-row { display: flex; gap: 6px; flex-shrink: 0; }
+  #quick-ai-question {
+    flex: 1; background: rgba(32, 34, 41, 0.85); color: #eee; border: 2px solid transparent;
+    border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit; outline: none;
+    transition: border-color .12s ease;
+  }
+  #quick-ai-question.focused, #quick-ai-question:focus-visible { border-color: #ffcf4d; }
+  #quick-ai-ask {
+    background: #e0a94a; color: #0a0a0c; border: 2px solid transparent; border-radius: 8px;
+    padding: 8px 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: border-color .12s ease, transform .12s ease;
+  }
+  #quick-ai-ask.focused { border-color: #5b8cff; transform: scale(1.04); }
+  #quick-ai-ask:active { transform: scale(0.96); }
+
+  #quick-ai-footer-row { display: flex; gap: 6px; flex-shrink: 0; }
+  .quick-ai-small-btn {
+    flex: 1; background: rgba(32, 34, 41, 0.85); color: #9a9ca3; border: 2px solid transparent;
+    border-radius: 8px; padding: 6px 8px; font-size: 11px; cursor: pointer; text-align: center;
+    transition: border-color .12s ease, transform .12s ease;
+  }
+  .quick-ai-small-btn.focused { border-color: #ffcf4d; transform: scale(1.03); }
+
+  #quick-ai-banner {
+    font-size: 11px; padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; flex-shrink: 0;
+    background: rgba(255, 91, 106, 0.15); color: #ff9aa4; display: none;
+  }
+  #quick-ai-banner.show { display: block; animation: fadeIn .2s ease-out; }
+  #quick-ai-cite {
+    margin-top: 6px; font-size: 12px; background: rgba(91, 140, 255, 0.15);
+    color: #a9c1ff; border-radius: 8px; padding: 8px 10px; display: none;
+    cursor: pointer; border: 2px solid transparent; flex-shrink: 0;
+    transition: border-color .12s ease, transform .12s ease;
+  }
+  #quick-ai-cite.show { display: block; animation: fadeInUp .2s ease-out; }
+  #quick-ai-cite.focused { border-color: #ffcf4d; transform: scale(1.02); }
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+</head>
+<body>
+
+<div id="open-screen">
+  <h1>📄 Wow PDF Viewer</h1>
+  <div class="start-actions">
+    <button id="open-btn" tabindex="0">+ Open PDF</button>
+    <div class="start-actions-row">
+      <button class="secondary-btn" id="start-file-manager-btn" tabindex="0">📁 File Manager</button>
+      <button class="secondary-btn" id="start-import-db-btn" tabindex="0">📦 Import DATABASE.zip</button>
+    </div>
+  </div>
+  <p>Once open: arrows scroll/pan · double-tap OK zooms in · triple-tap OK zooms out · 4 taps switches the active pane (split view) · 5 taps opens the menu · 7 taps opens quick AI · Back exits a menu or mode.</p>
+  <input type="file" id="file-input" accept="application/pdf" hidden />
+</div>
+
+<div id="viewer-area">
+  <div class="pane pane-active" data-pane="0">
+    <div class="pane-empty">No file assigned to this pane. Open the menu (5 quick OK taps) to pick one.</div>
+  </div>
+  <div class="pane" data-pane="1" hidden>
+    <div class="pane-empty">No file assigned to this pane.</div>
+  </div>
+</div>
+
+<div id="viewer-toolbar" aria-label="Viewer tools">
+  <button class="toolbar-btn primary" id="toolbar-menu" tabindex="0">☰ Menu</button>
+  <button class="toolbar-btn" id="toolbar-ai" tabindex="0">AI</button>
+  <button class="toolbar-btn warning" id="toolbar-split" tabindex="0">Split</button>
+  <button class="toolbar-btn" id="toolbar-zoom-out" tabindex="0">−</button>
+  <button class="toolbar-btn" id="toolbar-zoom-in" tabindex="0">＋</button>
+</div>
+
+<div id="status"></div>
+
+<div id="quick-ai-panel">
+  <div id="quick-ai-header">
+    <h3>Quick AI</h3>
+    <button id="quick-ai-close" tabindex="0" title="Close">✕</button>
+  </div>
+
+  <div id="quick-ai-banner"></div>
+
+  <div id="quick-ai-answer-wrap">
+    <div id="quick-ai-answer"></div>
+  </div>
+  <div id="quick-ai-scroll-row">
+    <button class="quick-scroll-btn" id="quick-ai-scroll-up" tabindex="0">▲ Scroll up</button>
+    <button class="quick-scroll-btn" id="quick-ai-scroll-down" tabindex="0">▼ Scroll down</button>
+  </div>
+  <div id="quick-ai-cite" tabindex="0"></div>
+
+  <div class="quick-preset-list" id="quick-preset-list"><!-- injected --></div>
+
+  <div id="quick-ai-custom-row">
+    <input id="quick-ai-question" type="text" placeholder="Or type your own question…" tabindex="0" />
+    <button id="quick-ai-ask" tabindex="0">Ask</button>
+  </div>
+
+  <div id="quick-ai-footer-row">
+    <button class="quick-ai-small-btn" id="quick-ai-clear-memory" tabindex="0">🗑 Clear AI memory</button>
+    <button class="quick-ai-small-btn" id="quick-ai-clear-drawings" tabindex="0">🧹 Clear drawings</button>
+  </div>
+</div>
+
+<!-- ============ HIDDEN MENU ============ -->
+<div id="menu-overlay">
+  <div id="menu-panel">
+    <h2>Menu</h2>
+
+    <h3>Open files</h3>
+    <div id="tabs-list"><!-- injected --></div>
+    <button class="menu-btn" id="menu-open-file" tabindex="0">+ Open another PDF</button>
+
+    <h3>Layout</h3>
+    <button class="menu-btn" id="menu-split-toggle" tabindex="0">⬛⬛ Split View: Off</button>
+    <button class="menu-btn" id="menu-switch-pane" tabindex="0" style="display:none;">↔ Active pane: A</button>
+    <p class="menu-hint">When split, tap a tab above to assign it to whichever pane is marked active. You can also 4-tap OK from the viewer to switch panes.</p>
+
+    <h3>AI Assist</h3>
+    <button class="menu-btn" id="menu-ai-open" tabindex="0">Ask AI about the current page (full settings)</button>
+    <p class="menu-hint">Mark a tab as "Mark Scheme" above so the AI can grade against it. For a faster shortcut once configured, tap OK 7 times from the viewer.</p>
+
+    <h3>Find in Mark Scheme (No AI)</h3>
+    <div class="tab-row">
+      <input id="ms-find-input" class="ai-input" type="text" placeholder="Leave blank to use your current page — or type e.g. 6, 6a" tabindex="0" />
+      <button class="tab-close-btn" id="ms-find-btn" tabindex="0" style="color:#5b8cff;">🔍 Find</button>
+    </div>
+    <p class="menu-hint">Pure local search — no API call, no tokens, works without a key. Leave the box empty to auto-analyze whichever page you're currently viewing; jumps straight to the matching mark-scheme page.</p>
+
+    <h3>Your PDFs folder</h3>
+    <button class="menu-btn" id="db-import-btn" tabindex="0">📦 Import DATABASE.zip (embeds PDFs into this HTML)</button>
+    <input type="file" id="db-import-input" accept=".zip" hidden />
+    <button class="menu-btn" id="db-export-btn" tabindex="0">⬇️ Export HTML with database (downloads one self-contained file)</button>
+    <p class="menu-hint" id="db-status-hint">Checking…</p>
+    <button class="menu-btn" id="db-rescan-btn" tabindex="0">🔄 Rescan for manifest.json (alternative, needs a web server)</button>
+    <button class="menu-btn" id="db-connect-btn" tabindex="0" style="display:none;">📁 Load PDFs folder (Chrome/Edge only)</button>
+    <div id="db-breadcrumb" class="db-breadcrumb" style="display:none;"></div>
+    <div id="db-filelist"><!-- injected --></div>
+
+    <h3>Import a .zip (optional)</h3>
+    <button class="menu-btn" id="library-import-btn" tabindex="0">📦 Import a .zip (auto-sorts Question/Mark Scheme/Report)</button>
+    <input type="file" id="library-import-input" accept=".zip" hidden />
+    <button class="menu-btn" id="library-save-btn" tabindex="0">💾 Save current single file (no subject folder detected)</button>
+    <p class="menu-hint" id="import-dest-hint">If a PDFs folder is connected above, imported files are unpacked straight into it, sorted into Subject/Paper subfolders. Otherwise they're kept in this browser's storage instead.</p>
+
+    <h3></h3>
+    <button class="menu-btn" id="menu-close" tabindex="0">✕ Close menu</button>
+  </div>
+</div>
+
+<!-- ============ AI ASSIST PANEL ============ -->
+<div id="ai-overlay">
+  <div id="ai-panel">
+    <h2>AI Assist</h2>
+    <p class="menu-hint">
+      This calls your chosen AI provider directly from the browser using your own API key —
+      no server involved. <strong>Anthropic supports this for prototyping</strong> via a direct-browser-access
+      header; <strong>OpenAI and most others block direct browser calls (CORS)</strong> unless you're
+      using a proxy — if a call fails with a network/CORS error, that's what happened, not a bug in this app.
+    </p>
+
+    <div class="ai-row">
+      <label>Provider</label>
+      <select id="ai-provider" class="ai-input">
+        <option value="claude">Claude (Anthropic)</option>
+        <option value="groq">Groq</option>
+        <option value="openai">OpenAI</option>
+        <option value="grok">Grok (x.ai)</option>
+        <option value="custom">Custom endpoint (OpenAI-compatible)</option>
+      </select>
+    </div>
+    <div class="ai-row">
+      <label>Model</label>
+      <div style="display:flex; gap:8px;">
+        <select id="ai-model-select" class="ai-input" style="display:none; flex:1;"></select>
+        <input id="ai-model" class="ai-input" type="text" placeholder="e.g. the exact model name your account has access to" style="flex:1;" />
+        <button class="menu-btn" id="ai-fetch-models-btn" tabindex="0" style="width:auto; white-space:nowrap; margin-bottom:0;">↻ Fetch models</button>
+      </div>
+      <p class="menu-hint" id="ai-model-hint">Enter your API key above, then tap "Fetch models" to list everything your account can use (vision models are marked 🖼️).</p>
+    </div>
+    <div class="ai-row" id="ai-endpoint-row" style="display:none;">
+      <label>Endpoint URL</label>
+      <input id="ai-endpoint" class="ai-input" type="text" placeholder="https://your-proxy-or-provider/v1/chat/completions" />
+    </div>
+    <div class="ai-row">
+      <label>API key</label>
+      <input id="ai-key" class="ai-input" type="password" placeholder="Stored only in this browser's local storage" />
+    </div>
+
+    <div class="ai-row">
+      <label>Question</label>
+      <input id="ai-question" class="ai-input" type="text" placeholder="e.g. Explain question 4 and show the method marks it should get" />
+      <p class="menu-hint">Single line by design — Up/Down move between fields on a D-pad; Left/Right move the text cursor normally.</p>
+    </div>
+
+    <button class="menu-btn" id="ai-ask-btn" tabindex="0">Ask</button>
+    <button class="menu-btn" id="ai-close-btn" tabindex="0">✕ Close</button>
+
+    <div id="ai-answer"></div>
+    <div id="ai-scroll-row">
+      <button class="menu-btn" id="ai-scroll-up" tabindex="0" style="margin-bottom:0;">▲ Scroll up</button>
+      <button class="menu-btn" id="ai-scroll-down" tabindex="0" style="margin-bottom:0;">▼ Scroll down</button>
+    </div>
+    <div id="ai-cite-row"><button class="menu-btn" id="ai-cite-jump" tabindex="0"></button></div>
+    <p class="menu-hint">Once there's an answer, use the ▲/▼ Scroll buttons above to read all of it.</p>
+  </div>
+</div>
+
+<script type="application/json" id="embedded-database">[]</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+<script>
+(() => {
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+  }
+
+  const ZOOM_STEPS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0];
+  const LOW_END_HINT = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+    (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+    /tv|chromecast|roku|android/i.test(navigator.userAgent);
+  const PAGE_LOAD_CHUNK = LOW_END_HINT ? 12 : 20;
+  const PREFETCH_MARGIN = 500;
+  const RENDER_WINDOW = LOW_END_HINT ? 4 : 6;
+  const PAN_STEP = 100;
+  const TAP_WINDOW_MS = 450;
+  const SCROLL_STEP = 60;
+
+  const openScreen = document.getElementById('open-screen');
+  const openBtn = document.getElementById('open-btn');
+  const fileInput = document.getElementById('file-input');
+  const viewerArea = document.getElementById('viewer-area');
+  const statusEl = document.getElementById('status');
+  const menuOverlay = document.getElementById('menu-overlay');
+  const tabsList = document.getElementById('tabs-list');
+  const splitToggleBtn = document.getElementById('menu-split-toggle');
+  const switchPaneBtn = document.getElementById('menu-switch-pane');
+
+  let docs = [];
+  let docIdCounter = 0;
+  let activePaneIndex = 0;
+
+  const LIBRARY_DB_NAME = 'wowpdf-library';
+  const LIBRARY_STORE = 'papers';
+
+  function openLibraryDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(LIBRARY_DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(LIBRARY_STORE)) {
+          db.createObjectStore(LIBRARY_STORE, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function libraryPut(entry) {
+    const db = await openLibraryDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(LIBRARY_STORE, 'readwrite');
+      tx.objectStore(LIBRARY_STORE).put(entry);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function libraryGetAll() {
+    const db = await openLibraryDB();
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(LIBRARY_STORE, 'readonly').objectStore(LIBRARY_STORE).getAll();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function libraryDelete(id) {
+    const db = await openLibraryDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(LIBRARY_STORE, 'readwrite');
+      tx.objectStore(LIBRARY_STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  const FS_SUPPORTED = typeof window.showDirectoryPicker === 'function';
+  const FS_HANDLE_DB_NAME = 'wowpdf-fs-handles';
+  const FS_HANDLE_STORE = 'handles';
+  const FS_HANDLE_KEY = 'databaseDir';
+
+  function openFsHandleDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(FS_HANDLE_DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(FS_HANDLE_STORE)) req.result.createObjectStore(FS_HANDLE_STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function saveDatabaseDirHandle(handle) {
+    const db = await openFsHandleDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(FS_HANDLE_STORE, 'readwrite');
+      tx.objectStore(FS_HANDLE_STORE).put(handle, FS_HANDLE_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function loadDatabaseDirHandle() {
+    const db = await openFsHandleDB();
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(FS_HANDLE_STORE, 'readonly').objectStore(FS_HANDLE_STORE).get(FS_HANDLE_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  let databaseDirHandle = null;
+
+  async function ensureReadWritePermission(handle) {
+    const opts = { mode: 'readwrite' };
+    if ((await handle.queryPermission(opts)) === 'granted') return true;
+    return (await handle.requestPermission(opts)) === 'granted';
+  }
+
+  async function connectDatabaseFolder() {
+    if (!FS_SUPPORTED) {
+      showStatus('Your browser doesn\'t support reading a real folder — using in-app storage instead (see below).', true);
+      return;
+    }
+    try {
+      const picked = await window.showDirectoryPicker({ id: 'wowpdf-pdfs-folder', mode: 'readwrite' });
+      databaseDirHandle = picked;
+      await saveDatabaseDirHandle(picked);
+      dbBreadcrumbPath = [];
+      showStatus(`Connected to "${picked.name}" — any PDFs already in it (or its subfolders) will show up below.`);
+      updateDbStatusHint();
+      await renderFileManager();
+    } catch (err) {
+      if (err?.name !== 'AbortError') showStatus(`Couldn't connect a folder: ${err.message}`, true);
+    }
+  }
+
+  async function tryReconnectDatabaseFolderSilently() {
+    if (!FS_SUPPORTED) { updateDbStatusHint(); return; }
+    try {
+      const handle = await loadDatabaseDirHandle();
+      if (!handle) { updateDbStatusHint(); return; }
+      if ((await handle.queryPermission({ mode: 'readwrite' })) === 'granted') {
+        databaseDirHandle = handle;
+      }
+      updateDbStatusHint();
+    } catch (err) {
+      console.error('Silent DATABASE reconnect failed (non-fatal):', err);
+      updateDbStatusHint();
+    }
+  }
+
+  function updateDbStatusHint() {
+    const hint = document.getElementById('db-status-hint');
+    const connectBtn = document.getElementById('db-connect-btn');
+
+    connectBtn.style.display = FS_SUPPORTED ? 'block' : 'none';
+
+    const embedLabel = embeddedSizeLabel();
+    if (embedLabel) {
+      hint.textContent = `${embedLabel} — baked directly into this HTML file. Import more any time, then re-export to update your copy.`;
+      if (FS_SUPPORTED) connectBtn.textContent = '📁 Also browse a folder picker (Chrome/Edge)';
+      return;
+    }
+    if (manifestTree) {
+      hint.textContent = 'Reading manifest.json — no dialogs, no uploads, works on any browser.';
+      if (FS_SUPPORTED) connectBtn.textContent = '📁 Use a folder picker instead (Chrome/Edge)';
+      return;
+    }
+    if (databaseDirHandle) {
+      hint.textContent = `Connected to "${databaseDirHandle.name}" via folder picker.`;
+      if (FS_SUPPORTED) connectBtn.textContent = '📁 Reconnect / choose a different folder';
+      return;
+    }
+    hint.textContent = 'Nothing loaded yet. Easiest path: tap "Import DATABASE.zip" below, then "Export HTML with database" — you get back one self-contained file that just opens, anywhere, no server needed.';
+    if (FS_SUPPORTED) connectBtn.textContent = '📁 Or use a folder picker (Chrome/Edge)';
+  }
+
+  document.getElementById('db-rescan-btn').addEventListener('click', async () => {
+    showStatus('Scanning for manifest.json…');
+    const found = await loadManifest();
+    if (found) {
+      dbBreadcrumbPath = [];
+      showStatus('Found manifest.json — PDFs listed below.');
+    } else {
+      showStatus('No manifest.json found here yet.', true);
+    }
+    updateDbStatusHint();
+    await renderFileManager();
+    rebuildMenuFocusList();
+  });
+
+  document.getElementById('db-connect-btn').addEventListener('click', async () => {
+    const remembered = await loadDatabaseDirHandle().catch(() => null);
+    if (remembered && !databaseDirHandle) {
+      try {
+        if (await ensureReadWritePermission(remembered)) {
+          databaseDirHandle = remembered;
+          updateDbStatusHint();
+          await renderFileManager();
+          showStatus('Reconnected to your PDFs folder.');
+          return;
+        }
+      } catch { }
+    }
+    await connectDatabaseFolder();
+  });
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function importDatabaseZip(file) {
+    if (typeof JSZip === 'undefined') {
+      showStatus('Zip import engine failed to load — check your internet connection.', true);
+      return;
+    }
+    showStatus(`Reading "${file.name}"… this can take a while for large archives.`);
+    try {
+      const pdfs = await extractAllPdfsFromZip(file);
+      if (pdfs.length === 0) { showStatus(`No PDFs found inside "${file.name}".`, true); return; }
+
+      showStatus(`Found ${pdfs.length} PDFs — embedding into this page (0/${pdfs.length})…`);
+      const byPath = new Map(embeddedEntries.map(e => [e.path, e]));
+      let done = 0;
+      for (const { path, blob } of pdfs) {
+        const name = path.split('/').pop();
+        const subject = subjectFromImportPath(path);
+        const paperKey = extractPaperKey(name) || sanitizeForFilesystem(name.replace(/\.pdf$/i, ''));
+        const entryPath = `${sanitizeForFilesystem(subject)}/${paperKey}/${sanitizeForFilesystem(name)}`;
+        const dataUrl = await blobToDataUrl(blob);
+        byPath.set(entryPath, { path: entryPath, url: dataUrl });
+        done++;
+        if (done % 3 === 0 || done === pdfs.length) showStatus(`Embedding into this page (${done}/${pdfs.length})…`);
+      }
+      embeddedEntries = [...byPath.values()];
+      embeddedTree = buildTreeFromEntries(embeddedEntries);
+      dbBreadcrumbPath = [];
+      showStatus(`Embedded ${pdfs.length} PDFs from "${file.name}". Tap "⬇️ Export HTML with database" to save a copy with everything baked in.`);
+      updateDbStatusHint();
+      await renderFileManager();
+      rebuildMenuFocusList();
+    } catch (err) {
+      console.error(err);
+      showStatus(`Import failed: ${err.message}`, true);
+    }
+  }
+
+  document.getElementById('db-import-btn').addEventListener('click', () => document.getElementById('db-import-input').click());
+  document.getElementById('db-import-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (file) await importDatabaseZip(file);
+  });
+
+  function estimateEmbeddedBytes() {
+    if (!embeddedEntries.length) return 0;
+    return embeddedEntries.reduce((sum, e) => {
+      const uri = e.url || '';
+      const comma = uri.indexOf(',');
+      if (comma < 0) return sum;
+      const payload = uri.slice(comma + 1);
+      return sum + Math.max(0, Math.round((payload.length * 3) / 4));
+    }, 0);
+  }
+
+  async function exportDatabaseZip() {
+    if (!embeddedEntries.length) {
+      showStatus('Nothing embedded yet — import a DATABASE.zip first.', true);
+      return;
+    }
+
+    showStatus('Packing a ZIP export instead of a giant single HTML…');
+    try {
+      const zip = new JSZip();
+      const manifest = [];
+
+      for (const entry of embeddedEntries) {
+        const relativePath = String(entry.path || '').replace(/^\.?\//, '').replace(/\\/g, '/');
+        if (!relativePath) continue;
+        const response = await fetch(entry.url);
+        const blob = await response.blob();
+        zip.file(relativePath, blob);
+        manifest.push(relativePath);
+      }
+
+      zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+      const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'wow-pdf-database.zip';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      showStatus(`Packed ${embeddedEntries.length} PDFs into a ZIP export.`);
+    } catch (err) {
+      console.error(err);
+      showStatus(`ZIP export failed: ${err.message}`, true);
+    }
+  }
+
+  async function exportSelfContainedHtml() {
+    if (!embeddedEntries.length) {
+      showStatus('Nothing embedded yet — import a DATABASE.zip first.', true);
+      return;
+    }
+
+    const embeddedBytes = estimateEmbeddedBytes();
+    const hugeExport = embeddedBytes > 80 * 1024 * 1024 || embeddedEntries.length > 80;
+
+    if (hugeExport) {
+      showStatus('This database is too large for a single-file HTML export. Downloading a ZIP instead.', true);
+      await exportDatabaseZip();
+      return;
+    }
+
+    menuOverlay.classList.remove('open');
+    aiOverlay.classList.remove('open');
+    quickAiPanel.classList.remove('open');
+    statusEl.classList.remove('show');
+
+    const exportRoot = document.documentElement.cloneNode(true);
+
+    exportRoot.querySelectorAll('.pane').forEach(pane => {
+      pane.innerHTML = '';
+      pane.classList.remove('pane-active');
+      pane.hidden = false;
+    });
+
+    exportRoot.querySelectorAll('#tabs-list, #db-filelist, #library-list, #db-breadcrumb, #quick-preset-list, #quick-ai-answer, #ai-answer, #viewer-toolbar').forEach(el => {
+      el.innerHTML = '';
+      el.textContent = '';
+    });
+
+    exportRoot.querySelectorAll('#status, #quick-ai-banner, #quick-ai-cite').forEach(el => {
+      el.textContent = '';
+      el.classList.remove('show');
+    });
+
+    const serializableEntries = embeddedEntries.map(({ path, url }) => ({ path, url }));
+    const tag = exportRoot.querySelector('#embedded-database');
+    if (tag) {
+      tag.textContent = JSON.stringify(serializableEntries);
+    } else {
+      const head = exportRoot.querySelector('head');
+      if (head) {
+        const script = document.createElement('script');
+        script.type = 'application/json';
+        script.id = 'embedded-database';
+        script.textContent = JSON.stringify(serializableEntries);
+        head.appendChild(script);
+      }
+    }
+
+    const html = '<!DOCTYPE html>\n' + exportRoot.outerHTML;
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'wow-pdf-viewer-with-database.html';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    showStatus('Downloading the portable single-file HTML.');
+  }
+  document.getElementById('db-export-btn').addEventListener('click', () => exportSelfContainedHtml());
+
+  async function getOrCreateNestedDir(rootHandle, segments) {
+    let dir = rootHandle;
+    for (const seg of segments) {
+      dir = await dir.getDirectoryHandle(sanitizeForFilesystem(seg), { create: true });
+    }
+    return dir;
+  }
+  function sanitizeForFilesystem(name) {
+    return name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'Untitled';
+  }
+  async function fsWriteFile(dirHandle, filename, blob) {
+    const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+  }
+  async function fsListDir(dirHandle) {
+    const entries = [];
+    for await (const [name, handle] of dirHandle.entries()) entries.push({ name, kind: handle.kind, handle });
+    entries.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'directory' ? -1 : 1));
+    return entries;
+  }
+
+  const SUBJECT_CODES = [
+    { re: /4BN[01]/i, label: 'Bangla' },
+    { re: /4EA[01]/i, label: 'English (A)' },
+    { re: /4EB[01]/i, label: 'English (B)' },
+    { re: /4PM1/i, label: 'Further Pure Maths' },
+    { re: /4MB[01]/i, label: 'Math B' },
+    { re: /4MA[01]/i, label: 'Math A' },
+    { re: /4BI[01]/i, label: 'Biology' },
+    { re: /4CH[01]/i, label: 'Chemistry' },
+    { re: /4PH[01]/i, label: 'Physics' },
+  ];
+  const SUBJECT_NAMES = [
+    { re: /bangla/i, label: 'Bangla' },
+    { re: /english/i, label: 'English' },
+    { re: /further pure math/i, label: 'Further Pure Maths' },
+    { re: /mathematics b|math b\b/i, label: 'Math B' },
+    { re: /mathematics a|math a\b/i, label: 'Math A' },
+    { re: /biology/i, label: 'Biology' },
+    { re: /chemistry/i, label: 'Chemistry' },
+    { re: /physics/i, label: 'Physics' },
+  ];
+  function detectSubject(filenameOrPath) {
+    for (const s of SUBJECT_CODES) if (s.re.test(filenameOrPath)) return s.label;
+    for (const s of SUBJECT_NAMES) if (s.re.test(filenameOrPath)) return s.label;
+    return 'Uncategorized';
+  }
+  function looksLikeMarkScheme(filename) {
+    return /\b(rms|ms|mark[\s_-]?scheme)\b/i.test(filename);
+  }
+  function looksLikeReport(filename) {
+    return /\b(examiner|report)\b/i.test(filename);
+  }
+  function detectRole(filename) {
+    if (looksLikeReport(filename)) return 'report';
+    if (looksLikeMarkScheme(filename)) return 'markscheme';
+    if (/\b(que|qp|question)\b/i.test(filename)) return 'question';
+    return 'unknown';
+  }
+  function extractPaperBase(filename) {
+    return filename
+      .toLowerCase()
+      .replace(/\.pdf$/, '')
+      .replace(/\b(que|qp|question|rms|ms|markscheme|mark[\s_-]?scheme|examiner|report)\b/g, '')
+      .replace(/\d{6,8}/g, '')
+      .replace(/[^a-z0-9]/g, '');
+  }
+  function extractPaperKey(filename) {
+    const m = filename.match(/paper\s*(\d+[a-z]?)\s*-?\s*([a-z]+\s*\d{4})/i);
+    return m ? (m[1] + m[2]).toLowerCase().replace(/\s+/g, '') : null;
+  }
+
+  function makePaneState(index) {
+    const el = document.querySelector(`.pane[data-pane="${index}"]`);
+    return {
+      index, el,
+      docId: null,
+      pdfDoc: null,
+      currentPage: 1,
+      zoomIndex: 2,
+      rotation: 0,
+      loadedUntil: 0,
+      pageWraps: new Map(),
+      loadMoreBtn: null,
+    };
+  }
+  const panes = [makePaneState(0), makePaneState(1)];
+
+  let statusTimer = null;
+  function showStatus(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.classList.toggle('error', isError);
+    statusEl.classList.remove('show');
+    void statusEl.offsetWidth;
+    statusEl.classList.add('show');
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => statusEl.classList.remove('show'), isError ? 5000 : 1800);
+  }
+
+  function activePane() { return panes[activePaneIndex]; }
+  function isSplit() { return viewerArea.classList.contains('split'); }
+
+  function updateViewerToolbar() {
+    const isVisible = viewerArea.classList.contains('active');
+    document.getElementById('viewer-toolbar').classList.toggle('visible', isVisible);
+    const splitBtn = document.getElementById('toolbar-split');
+    if (splitBtn) splitBtn.textContent = isSplit() ? 'Single' : 'Split';
+  }
+
+  const scrollRenderTimers = new Map();
+  function schedulePaneRender(pane) {
+    const existing = scrollRenderTimers.get(pane.index);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      scrollRenderTimers.delete(pane.index);
+      ensureRenderedInPane(pane, pane.currentPage);
+    }, 120);
+    scrollRenderTimers.set(pane.index, timer);
+  }
+
+  async function adjustZoom(delta) {
+    const pane = activePane();
+    if (!pane.pdfDoc) {
+      showStatus('Open a PDF first before zooming.', true);
+      return;
+    }
+    const nextIndex = Math.max(0, Math.min(pane.zoomIndex + delta, ZOOM_STEPS.length - 1));
+    if (nextIndex === pane.zoomIndex) {
+      showStatus(delta > 0 ? 'Already at maximum zoom.' : 'Already at minimum zoom.');
+      return;
+    }
+    pane.zoomIndex = nextIndex;
+    await rerenderPane(pane);
+    showStatus(`Zoom ${delta > 0 ? 'in' : 'out'} — ${Math.round(ZOOM_STEPS[pane.zoomIndex] * 100)}%`);
+  }
+
+  function teardownPane(pane) {
+    pane.pageWraps.forEach(p => p.wrap.remove());
+    pane.pageWraps.clear();
+    pane.loadedUntil = 0;
+    const empty = pane.el.querySelector('.pane-empty');
+    if (empty) empty.remove();
+  }
+
+  function ensureLoadMoreButton(pane) {
+    if (!pane.pdfDoc) return;
+    if (!pane.loadMoreBtn) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'menu-btn';
+      btn.style.marginTop = '10px';
+      btn.style.marginBottom = '14px';
+      btn.addEventListener('click', () => loadMorePages(pane));
+      pane.loadMoreBtn = btn;
+      pane.el.appendChild(btn);
+    }
+    const remaining = pane.pdfDoc.numPages - pane.loadedUntil;
+    const btn = pane.loadMoreBtn;
+    if (remaining <= 0) {
+      btn.style.display = 'none';
+      btn.textContent = 'All pages loaded';
+      return;
+    }
+    btn.style.display = 'block';
+    btn.textContent = `Load ${Math.min(PAGE_LOAD_CHUNK, remaining)} more pages`;
+  }
+
+  async function loadMorePages(pane, targetPage = null) {
+    if (!pane.pdfDoc) return;
+    const start = pane.loadedUntil || 1;
+    const goal = targetPage ?? Math.min(pane.pdfDoc.numPages, start + PAGE_LOAD_CHUNK - 1);
+    const pages = [];
+    for (let n = start; n <= goal; n++) {
+      if (!pane.pageWraps.has(n)) pages.push(n);
+    }
+    for (const n of pages) {
+      if (n > pane.pdfDoc.numPages) continue;
+      await renderPageInPane(pane, n);
+    }
+    pane.loadedUntil = Math.max(pane.loadedUntil || 0, goal);
+    ensureLoadMoreButton(pane);
+  }
+
+  async function renderPageInPane(pane, pageNum) {
+    const page = await pane.pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: ZOOM_STEPS[pane.zoomIndex], rotation: pane.rotation });
+
+    const wrap = document.createElement('div');
+    wrap.className = 'pdf-page-wrap';
+    wrap.dataset.page = pageNum;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'pdf-page-canvas';
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    wrap.appendChild(canvas);
+
+    const highlightLayer = document.createElement('div');
+    highlightLayer.className = 'pdf-page-highlight-layer';
+    highlightLayer.style.width = viewport.width + 'px';
+    highlightLayer.style.height = viewport.height + 'px';
+    wrap.appendChild(highlightLayer);
+
+    pane.el.appendChild(wrap);
+    pane.pageWraps.set(pageNum, { wrap, canvas, highlightLayer, width: viewport.width, height: viewport.height });
+
+    try {
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    } catch (e) {
+      if (e?.name !== 'RenderingCancelledException') throw e;
+    }
+  }
+
+  async function ensureRenderedInPane(pane, centerPage) {
+    if (!pane.pdfDoc) return;
+    const lo = Math.max(1, centerPage - RENDER_WINDOW);
+    const hi = Math.min(pane.pdfDoc.numPages, centerPage + RENDER_WINDOW);
+
+    const needed = [];
+    for (let n = lo; n <= hi; n++) {
+      if (!pane.pageWraps.has(n)) needed.push(n);
+    }
+
+    for (const n of needed) {
+      await renderPageInPane(pane, n);
+    }
+
+    if ((pane.loadedUntil || 0) < hi) {
+      await loadMorePages(pane, hi);
+    }
+
+    ensureLoadMoreButton(pane);
+    [...pane.pageWraps.keys()].sort((a, b) => a - b).forEach(n => pane.el.appendChild(pane.pageWraps.get(n).wrap));
+  }
+
+  async function rerenderPane(pane) {
+    const anchor = pane.currentPage;
+    teardownPane(pane);
+    await loadMorePages(pane);
+    await ensureRenderedInPane(pane, anchor);
+    pane.pageWraps.get(anchor)?.wrap.scrollIntoView({ block: 'start' });
+  }
+
+  async function jumpPaneToPage(pane, pageNum) {
+    if (!pane.pdfDoc) return;
+    pageNum = Math.max(1, Math.min(pane.pdfDoc.numPages, pageNum));
+    pane.currentPage = pageNum;
+    await ensureRenderedInPane(pane, pageNum);
+    pane.pageWraps.get(pageNum)?.wrap.scrollIntoView({ block: 'start' });
+  }
+
+  function drawHighlight(pane, pageNum, xFrac, yFrac, wFrac, hFrac) {
+    const entry = pane.pageWraps.get(pageNum);
+    if (!entry) return;
+    const box = document.createElement('div');
+    box.className = 'ai-highlight-box';
+    box.style.left = (xFrac * entry.width) + 'px';
+    box.style.top = (yFrac * entry.height) + 'px';
+    box.style.width = (wFrac * entry.width) + 'px';
+    box.style.height = (hFrac * entry.height) + 'px';
+    entry.highlightLayer.appendChild(box);
+  }
+
+  function clearAllHighlights() {
+    panes.forEach(pane => {
+      pane.pageWraps.forEach(entry => { entry.highlightLayer.innerHTML = ''; });
+    });
+  }
+
+  panes.forEach(pane => {
+    pane.el.addEventListener('scroll', () => {
+      if (!pane.pdfDoc) return;
+      const containerRect = pane.el.getBoundingClientRect();
+      let bestPage = pane.currentPage, bestOverlap = -1;
+      for (const [n, entry] of pane.pageWraps) {
+        const r = entry.wrap.getBoundingClientRect();
+        const overlap = Math.min(r.bottom, containerRect.bottom) - Math.max(r.top, containerRect.top);
+        if (overlap > bestOverlap) { bestOverlap = overlap; bestPage = n; }
+      }
+      if (bestPage !== pane.currentPage) pane.currentPage = bestPage;
+      const nearBottom = pane.el.scrollHeight - (pane.el.scrollTop + pane.el.clientHeight) < PREFETCH_MARGIN;
+      if (nearBottom && pane.loadedUntil < pane.pdfDoc.numPages) {
+        loadMorePages(pane).catch(console.error);
+      }
+      schedulePaneRender(pane);
+    }, { passive: true });
+
+    pane.el.addEventListener('mousedown', () => setActivePane(pane.index));
+  });
+
+  function setActivePane(index) {
+    activePaneIndex = index;
+    panes.forEach(p => p.el.classList.toggle('pane-active', p.index === index));
+    switchPaneBtn.textContent = `↔ Active pane: ${index === 0 ? 'A' : 'B'}`;
+  }
+
+  async function assignDocToPane(paneIndex, docId) {
+    const pane = panes[paneIndex];
+    const doc = docs.find(d => d.id === docId);
+    pane.docId = docId || null;
+    teardownPane(pane);
+
+    if (!doc) {
+      const empty = document.createElement('div');
+      empty.className = 'pane-empty';
+      empty.textContent = 'No file assigned to this pane.';
+      pane.el.appendChild(empty);
+      return;
+    }
+
+    pane.pdfDoc = doc.pdfDoc;
+    pane.currentPage = 1;
+    pane.zoomIndex = 2;
+    pane.rotation = 0;
+    pane.loadedUntil = 0;
+    pane.loadMoreBtn = null;
+    await loadMorePages(pane, Math.min(doc.pdfDoc.numPages, PAGE_LOAD_CHUNK));
+    await ensureRenderedInPane(pane, 1);
+    pane.el.scrollTop = 0;
+  }
+
+  function triggerFileOpen() { fileInput.click(); }
+  openBtn.addEventListener('click', triggerFileOpen);
+  document.getElementById('menu-open-file').addEventListener('click', triggerFileOpen);
+  document.getElementById('start-file-manager-btn').addEventListener('click', openMenu);
+  document.getElementById('start-import-db-btn').addEventListener('click', () => document.getElementById('db-import-input').click());
+
+  document.getElementById('ms-find-btn').addEventListener('click', async () => {
+    let query = document.getElementById('ms-find-input').value.trim();
+
+    const markSchemeDoc = docs.find(d => d.isMarkScheme);
+    if (!markSchemeDoc) { showStatus('No file is marked as the Mark Scheme yet.', true); return; }
+
+    let usingCurrentPage = false;
+    if (!query) {
+      const questionPane = panes.find(p => p.pdfDoc && p.docId !== markSchemeDoc.id) || activePane();
+      if (!questionPane.pdfDoc) {
+        showStatus('Open a question paper first, or type a question number to search for.', true);
+        return;
+      }
+      try {
+        query = await extractPageText(questionPane.pdfDoc, questionPane.currentPage);
+        usingCurrentPage = true;
+      } catch (err) {
+        showStatus(`Couldn't read the current page: ${err.message}`, true);
+        return;
+      }
+    }
+
+    showStatus(usingCurrentPage ? 'Analyzing your current page…' : 'Searching mark scheme…');
+    try {
+      const { topPages, totalPages } = await findRelevantMarkSchemePages(query, markSchemeDoc, 1);
+      if (topPages.length === 0) {
+        showStatus(`No matching page found across all ${totalPages} pages of the mark scheme${usingCurrentPage ? ' for your current page' : ` for "${query}"`}.`, true);
+        return;
+      }
+      closeMenu();
+      await jumpToMarkSchemePage(topPages[0]);
+    } catch (err) {
+      console.error(err);
+      showStatus(`Search failed: ${err.message}`, true);
+    }
+  });
+
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    fileInput.value = '';
+    if (!file) return;
+
+    if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
+      showStatus("That file doesn't look like a PDF.", true);
+      return;
+    }
+
+    showStatus(`Loading "${file.name}"…`);
+    try {
+      if (typeof pdfjsLib === 'undefined') {
+        throw new Error('PDF engine failed to load — check your internet connection.');
+      }
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const role = detectRole(file.name);
+      const doc = { id: ++docIdCounter, name: file.name, pdfDoc, isMarkScheme: role === 'markscheme', role, blob: file };
+      docs.push(doc);
+      renderTabsList();
+
+      await assignDocToPane(activePaneIndex, doc.id);
+
+      openScreen.classList.add('hidden');
+      viewerArea.classList.add('active');
+      updateViewerToolbar();
+      closeMenu();
+      showStatus(`Opened "${file.name}" (${pdfDoc.numPages} pages).`);
+
+      if (role === 'question') {
+        try {
+          const libraryEntries = await libraryGetAll();
+          const key = extractPaperKey(file.name);
+          const base = extractPaperBase(file.name);
+          const findMatch = (wantRole) => libraryEntries.find(e => {
+            const eRole = e.role || (e.isMarkScheme ? 'markscheme' : 'question');
+            if (eRole !== wantRole) return false;
+            const eKey = e.paperKey || extractPaperKey(e.name);
+            return (key && eKey && key === eKey) || extractPaperBase(e.name) === base;
+          });
+          const loadedNames = [];
+          const msEntry = findMatch('markscheme');
+          if (msEntry) { await loadDocFromBlob(msEntry.blob, msEntry.name, true, 'markscheme'); loadedNames.push(`mark scheme "${msEntry.name}"`); }
+          const reportEntry = findMatch('report');
+          if (reportEntry) { await loadDocFromBlob(reportEntry.blob, reportEntry.name, false, 'report'); loadedNames.push(`examiner report "${reportEntry.name}"`); }
+          if (loadedNames.length) {
+            renderTabsList();
+            showStatus(`Also loaded its ${loadedNames.join(' and ')} from your Library in the background.`);
+          }
+        } catch (err) {
+          console.error('Background auto-pair lookup failed (non-fatal):', err);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      showStatus(`Failed to open "${file.name}": ${err.message}`, true);
+    }
+  });
+
+  function renderTabsList() {
+    tabsList.innerHTML = '';
+    if (docs.length === 0) {
+      tabsList.innerHTML = '<p class="menu-hint">No files open yet.</p>';
+      return;
+    }
+    docs.forEach(doc => {
+      const row = document.createElement('div');
+      row.className = 'tab-row';
+
+      const btn = document.createElement('button');
+      btn.className = 'menu-btn';
+      btn.tabIndex = 0;
+      const shownInPane = panes.find(p => p.docId === doc.id);
+      if (shownInPane) btn.classList.add('active-state');
+      const roleIcon = doc.role === 'markscheme' ? '📑' : doc.role === 'report' ? '📊' : '📄';
+      btn.textContent = shownInPane
+        ? `${roleIcon} ${doc.name}  (Pane ${shownInPane.index === 0 ? 'A' : 'B'})`
+        : `${roleIcon} ${doc.name}`;
+      btn.title = 'Assign this file to the active pane';
+      btn.addEventListener('click', async () => {
+        await assignDocToPane(activePaneIndex, doc.id);
+        renderTabsList();
+        showStatus(`"${doc.name}" assigned to Pane ${activePaneIndex === 0 ? 'A' : 'B'}.`);
+      });
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'tab-close-btn';
+      closeBtn.tabIndex = 0;
+      closeBtn.textContent = '✕';
+      closeBtn.title = `Close ${doc.name}`;
+      closeBtn.addEventListener('click', async () => {
+        docs = docs.filter(d => d.id !== doc.id);
+        for (const p of panes) {
+          if (p.docId === doc.id) await assignDocToPane(p.index, null);
+        }
+        renderTabsList();
+        rebuildMenuFocusList();
+      });
+
+      const markBtn = document.createElement('button');
+      markBtn.className = 'tab-mark-btn';
+      markBtn.tabIndex = 0;
+      markBtn.textContent = doc.isMarkScheme ? '📑 Mark Scheme' : '📑 Mark as MS';
+      if (doc.isMarkScheme) markBtn.classList.add('marked');
+      markBtn.title = 'Flag this file as the mark scheme AI should grade against';
+      markBtn.addEventListener('click', () => {
+        docs.forEach(d => { if (d.id !== doc.id) d.isMarkScheme = false; });
+        doc.isMarkScheme = !doc.isMarkScheme;
+        renderTabsList();
+        rebuildMenuFocusList();
+      });
+
+      row.appendChild(btn);
+      row.appendChild(markBtn);
+      row.appendChild(closeBtn);
+      tabsList.appendChild(row);
+    });
+  }
+
+  async function loadDocFromBlob(blob, name, isMarkScheme = false, role = null) {
+    const arrayBuffer = await blob.arrayBuffer();
+    const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const doc = { id: ++docIdCounter, name, pdfDoc, isMarkScheme, role: role || (isMarkScheme ? 'markscheme' : 'question'), blob };
+    docs.push(doc);
+    return doc;
+  }
+
+  async function saveCurrentToLibrary() {
+    const pane = activePane();
+    const currentDoc = docs.find(d => d.id === pane.docId);
+    if (!currentDoc) { showStatus('No file open in the active pane to save.', true); return; }
+    if (!currentDoc.blob) { showStatus('This file has no saveable data — try re-opening it.', true); return; }
+
+    const isMs = currentDoc.isMarkScheme || looksLikeMarkScheme(currentDoc.name);
+    const entry = {
+      id: `${currentDoc.name}-${currentDoc.blob.size}`,
+      name: currentDoc.name,
+      subject: detectSubject(currentDoc.name),
+      isMarkScheme: isMs,
+      role: isMs ? 'markscheme' : (looksLikeReport(currentDoc.name) ? 'report' : 'question'),
+      paperKey: extractPaperKey(currentDoc.name),
+      blob: currentDoc.blob,
+      addedAt: Date.now(),
+    };
+    try {
+      await libraryPut(entry);
+      showStatus(`Saved "${currentDoc.name}" to your Library (${entry.subject}).`);
+      await renderLibraryList();
+      rebuildMenuFocusList();
+    } catch (err) {
+      console.error(err);
+      showStatus(`Couldn't save to Library: ${err.message}`, true);
+    }
+  }
+
+  async function renderLibraryList() {
+    const listEl = document.getElementById('library-list');
+    let entries;
+    try {
+      entries = await libraryGetAll();
+    } catch (err) {
+      listEl.innerHTML = `<p class="library-empty-hint">Library unavailable: ${err.message}</p>`;
+      return;
+    }
+    if (entries.length === 0) {
+      listEl.innerHTML = '<p class="library-empty-hint">Nothing saved yet — open a file, then tap "Save current file to Library" above.</p>';
+      return;
+    }
+
+    const bySubject = {};
+    entries.forEach(e => { (bySubject[e.subject] ||= []).push(e); });
+
+    listEl.innerHTML = '';
+    Object.keys(bySubject).sort().forEach(subject => {
+      const header = document.createElement('div');
+      header.className = 'library-subject-header';
+      header.textContent = subject;
+      listEl.appendChild(header);
+
+      bySubject[subject].forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'tab-row';
+
+        const role = entry.role || (entry.isMarkScheme ? 'markscheme' : 'question');
+        const roleIcon = role === 'markscheme' ? '📑' : role === 'report' ? '📊' : '📄';
+
+        const openBtn = document.createElement('button');
+        openBtn.className = 'library-entry-btn menu-btn';
+        openBtn.tabIndex = 0;
+        if (role === 'markscheme') openBtn.classList.add('is-ms');
+        openBtn.textContent = `${roleIcon} ${entry.name}`;
+        openBtn.title = 'Open this saved paper';
+        openBtn.addEventListener('click', async () => {
+          try {
+            const doc = await loadDocFromBlob(entry.blob, entry.name, entry.isMarkScheme, role);
+            renderTabsList();
+            await assignDocToPane(activePaneIndex, doc.id);
+            closeMenu();
+            showStatus(`Opened "${entry.name}" from Library.`);
+
+            if (role === 'question') {
+              const key = entry.paperKey || extractPaperKey(entry.name);
+              const base = extractPaperBase(entry.name);
+              const findMatch = (wantRole) => entries.find(e => {
+                if (e.id === entry.id) return false;
+                const eRole = e.role || (e.isMarkScheme ? 'markscheme' : 'question');
+                if (eRole !== wantRole) return false;
+                const eKey = e.paperKey || extractPaperKey(e.name);
+                return (key && eKey && key === eKey) || extractPaperBase(e.name) === base;
+              });
+
+              const loadedNames = [];
+              const msEntry = findMatch('markscheme');
+              if (msEntry) {
+                await loadDocFromBlob(msEntry.blob, msEntry.name, true, 'markscheme');
+                loadedNames.push(`mark scheme "${msEntry.name}"`);
+              }
+              const reportEntry = findMatch('report');
+              if (reportEntry) {
+                await loadDocFromBlob(reportEntry.blob, reportEntry.name, false, 'report');
+                loadedNames.push(`examiner report "${reportEntry.name}"`);
+              }
+              if (loadedNames.length) {
+                renderTabsList();
+                showStatus(`Also loaded its ${loadedNames.join(' and ')} in the background.`);
+              }
+            }
+          } catch (err) {
+            console.error(err);
+            showStatus(`Couldn't open "${entry.name}": ${err.message}`, true);
+          }
+        });
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'tab-close-btn';
+        deleteBtn.tabIndex = 0;
+        deleteBtn.textContent = '✕';
+        deleteBtn.title = `Remove ${entry.name} from Library`;
+        deleteBtn.addEventListener('click', async () => {
+          try {
+            await libraryDelete(entry.id);
+            showStatus(`Removed "${entry.name}" from Library.`);
+            await renderLibraryList();
+            rebuildMenuFocusList();
+          } catch (err) {
+            showStatus(`Couldn't remove: ${err.message}`, true);
+          }
+        });
+
+        row.appendChild(openBtn);
+        row.appendChild(deleteBtn);
+        listEl.appendChild(row);
+      });
+    });
+  }
+
+  document.getElementById('library-save-btn').addEventListener('click', saveCurrentToLibrary);
+
+  let dbBreadcrumbPath = [];
+  let manifestTree = null;
+  let manifestBaseUrl = null;
+  let embeddedTree = null;
+  let embeddedEntries = [];
+
+  function pdfsFolderLabel() {
+    if (embeddedTree) return '🏠 PDFs (embedded in this HTML)';
+    if (manifestTree) return '🏠 PDFs (manifest.json)';
+    return `🏠 ${databaseDirHandle?.name || 'PDFs'}`;
+  }
+  function activeTree() { return embeddedTree || manifestTree; }
+
+  function buildTreeFromEntries(entries) {
+    const root = { name: '', kind: 'directory', children: new Map() };
+    for (const { path: rawPath, url } of entries) {
+      const path = String(rawPath).replace(/^\.?\//, '').replace(/\\/g, '/');
+      if (!path.toLowerCase().endsWith('.pdf')) continue;
+      const parts = path.split('/').filter(Boolean);
+      let node = root;
+      parts.forEach((part, i) => {
+        const isFile = i === parts.length - 1;
+        if (!node.children.has(part)) {
+          node.children.set(part, isFile
+            ? { name: part, kind: 'file', url }
+            : { name: part, kind: 'directory', children: new Map() });
+        }
+        node = node.children.get(part);
+      });
+    }
+    return root;
+  }
+
+  function getTreeNodeAt(tree, segments) {
+    let node = tree;
+    for (const seg of segments) {
+      if (!node || node.kind !== 'directory') return null;
+      node = node.children.get(seg);
+    }
+    return node;
+  }
+
+  async function loadManifest() {
+    manifestBaseUrl = new URL('.', location.href).href;
+    try {
+      const res = await fetch(manifestBaseUrl + 'manifest.json', { cache: 'no-store' });
+      if (!res.ok) { manifestTree = null; return false; }
+      const data = await res.json();
+      const paths = Array.isArray(data) ? data.map(x => (typeof x === 'string' ? x : x.path)) : [];
+      manifestTree = buildTreeFromEntries(paths.filter(Boolean).map(p => ({ path: p, url: encodeURI(manifestBaseUrl + p) })));
+      return true;
+    } catch {
+      manifestTree = null;
+      return false;
+    }
+  }
+
+  function loadEmbeddedDatabaseFromPage() {
+    try {
+      const tag = document.getElementById('embedded-database');
+      const data = JSON.parse(tag?.textContent || '[]');
+      embeddedEntries = Array.isArray(data) ? data : [];
+      embeddedTree = embeddedEntries.length ? buildTreeFromEntries(embeddedEntries) : null;
+    } catch (err) {
+      console.error('Embedded database was present but unreadable:', err);
+      embeddedEntries = [];
+      embeddedTree = null;
+    }
+  }
+
+  function embeddedSizeLabel() {
+    if (!embeddedEntries.length) return null;
+    const totalBytes = embeddedEntries.reduce((sum, e) => sum + Math.round((e.url.length - e.url.indexOf(',') - 1) * 0.75), 0);
+    const mb = totalBytes / (1024 * 1024);
+    return `${embeddedEntries.length} PDF${embeddedEntries.length === 1 ? '' : 's'} embedded (~${mb < 1 ? Math.round(totalBytes / 1024) + ' KB' : mb.toFixed(1) + ' MB'})`;
+  }
+
+  function renderDbBreadcrumb() {
+    const el = document.getElementById('db-breadcrumb');
+    if (!activeTree() && !databaseDirHandle) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'flex';
+    el.innerHTML = '';
+    const makeCrumb = (label, depth) => {
+      const btn = document.createElement('button');
+      btn.className = 'db-crumb-btn';
+      btn.tabIndex = 0;
+      btn.textContent = label;
+      btn.addEventListener('click', async () => {
+        dbBreadcrumbPath = dbBreadcrumbPath.slice(0, depth);
+        await renderFileManager();
+        rebuildMenuFocusList();
+      });
+      return btn;
+    };
+    el.appendChild(makeCrumb(pdfsFolderLabel(), 0));
+    dbBreadcrumbPath.forEach((seg, i) => {
+      const sep = document.createElement('span');
+      sep.className = 'db-crumb-sep';
+      sep.textContent = '›';
+      el.appendChild(sep);
+      el.appendChild(makeCrumb(seg, i + 1));
+    });
+  }
+
+  async function openFoundFile({ name, getArrayBuffer }, siblingFiles) {
+    const role = detectRole(name);
+    showStatus(`Opening "${name}"…`);
+    try {
+      const arrayBuffer = await getArrayBuffer();
+      const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const doc = { id: ++docIdCounter, name, pdfDoc, isMarkScheme: role === 'markscheme', role };
+      docs.push(doc);
+      renderTabsList();
+      await assignDocToPane(activePaneIndex, doc.id);
+
+      openScreen.classList.add('hidden');
+      viewerArea.classList.add('active');
+      updateViewerToolbar();
+      closeMenu();
+      showStatus(`Opened "${name}".`);
+
+      if (role === 'question' && siblingFiles?.length) {
+        const key = extractPaperKey(name);
+        const base = extractPaperBase(name);
+        const loadedNames = [];
+        for (const wantRole of ['markscheme', 'report']) {
+          const match = siblingFiles.find(s => {
+            if (s.name === name || detectRole(s.name) !== wantRole) return false;
+            const sKey = extractPaperKey(s.name);
+            return (key && sKey && key === sKey) || extractPaperBase(s.name) === base;
+          });
+          if (!match) continue;
+          try {
+            const sBuffer = await match.getArrayBuffer();
+            const sPdf = await pdfjsLib.getDocument({ data: sBuffer }).promise;
+            docs.push({ id: ++docIdCounter, name: match.name, pdfDoc: sPdf, isMarkScheme: wantRole === 'markscheme', role: wantRole });
+            loadedNames.push(`${wantRole === 'markscheme' ? 'mark scheme' : 'examiner report'} "${match.name}"`);
+          } catch (err) { console.error(`Couldn't load matched ${wantRole}:`, err); }
+        }
+        if (loadedNames.length) {
+          renderTabsList();
+          showStatus(`Also loaded its ${loadedNames.join(' and ')} in the background.`);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      showStatus(`Couldn't open "${name}": ${err.message}`, true);
+    }
+  }
+
+  async function renderFileManager() {
+    const listEl = document.getElementById('db-filelist');
+    renderDbBreadcrumb();
+
+    if (activeTree()) {
+      const tree = activeTree();
+      const node = getTreeNodeAt(tree, dbBreadcrumbPath) || tree;
+      const entries = [...node.children.values()];
+      if (entries.length === 0) {
+        listEl.innerHTML = embeddedTree
+          ? '<p class="db-empty-hint">No PDFs embedded yet — use "Import DATABASE.zip" below.</p>'
+          : '<p class="db-empty-hint">manifest.json is empty — add PDFs and re-run the generator, then tap "🔄 Rescan".</p>';
+        return;
+      }
+      const siblingFiles = entries.filter(e => e.kind === 'file')
+        .map(e => ({ name: e.name, getArrayBuffer: () => fetch(e.url).then(r => r.arrayBuffer()) }));
+      listEl.innerHTML = '';
+      for (const entry of entries) {
+        const btn = document.createElement('button');
+        btn.className = 'db-entry-btn';
+        btn.tabIndex = 0;
+        if (entry.kind === 'directory') {
+          btn.classList.add('is-folder');
+          btn.textContent = `📁 ${entry.name}`;
+          btn.addEventListener('click', async () => {
+            dbBreadcrumbPath = [...dbBreadcrumbPath, entry.name];
+            await renderFileManager();
+            rebuildMenuFocusList();
+          });
+        } else {
+          const role = detectRole(entry.name);
+          const icon = role === 'markscheme' ? '📑' : role === 'report' ? '📊' : '📄';
+          if (role === 'markscheme') btn.classList.add('is-ms');
+          if (role === 'report') btn.classList.add('is-report');
+          btn.textContent = `${icon} ${entry.name}`;
+          btn.title = role === 'question' ? 'Opens this paper AND auto-loads its mark scheme/report' : 'Open this file';
+          btn.addEventListener('click', () => openFoundFile(
+            { name: entry.name, getArrayBuffer: () => fetch(entry.url).then(r => r.arrayBuffer()) },
+            siblingFiles
+          ));
+        }
+        listEl.appendChild(btn);
+      }
+      return;
+    }
+
+    if (!databaseDirHandle) {
+      listEl.innerHTML = '<p class="db-empty-hint">No PDFs embedded, no manifest.json found, and no folder connected. Easiest fix: use "Import DATABASE.zip" below, then "Export HTML with database".</p>';
+      return;
+    }
+
+    let dir, entries;
+    try {
+      let d = databaseDirHandle;
+      for (const seg of dbBreadcrumbPath) d = await d.getDirectoryHandle(seg);
+      dir = d;
+      entries = await fsListDir(dir);
+    } catch (err) {
+      listEl.innerHTML = `<p class="db-empty-hint">Couldn't read this folder: ${err.message}</p>`;
+      return;
+    }
+
+    if (entries.length === 0) {
+      listEl.innerHTML = '<p class="db-empty-hint">Empty folder — import a .zip above to fill it.</p>';
+      return;
+    }
+
+    const siblingFiles = entries.filter(e => e.kind === 'file')
+      .map(e => ({ name: e.name, getArrayBuffer: () => e.handle.getFile().then(f => f.arrayBuffer()) }));
+    listEl.innerHTML = '';
+    for (const entry of entries) {
+      const btn = document.createElement('button');
+      btn.className = 'db-entry-btn';
+      btn.tabIndex = 0;
+      if (entry.kind === 'directory') {
+        btn.classList.add('is-folder');
+        btn.textContent = `📁 ${entry.name}`;
+        btn.addEventListener('click', async () => {
+          dbBreadcrumbPath = [...dbBreadcrumbPath, entry.name];
+          await renderFileManager();
+          rebuildMenuFocusList();
+        });
+      } else {
+        const role = detectRole(entry.name);
+        const icon = role === 'markscheme' ? '📑' : role === 'report' ? '📊' : '📄';
+        if (role === 'markscheme') btn.classList.add('is-ms');
+        if (role === 'report') btn.classList.add('is-report');
+        btn.textContent = `${icon} ${entry.name}`;
+        btn.title = role === 'question' ? 'Opens this paper AND auto-loads its mark scheme/report from the same folder' : 'Open this file';
+        btn.addEventListener('click', () => openFoundFile(
+          { name: entry.name, getArrayBuffer: () => entry.handle.getFile().then(f => f.arrayBuffer()) },
+          siblingFiles
+        ));
+      }
+      listEl.appendChild(btn);
+    }
+  }
+
+  async function extractAllPdfsFromZip(zipFile, pathPrefix = '') {
+    const zip = await JSZip.loadAsync(zipFile);
+    const results = [];
+    for (const [entryPath, entry] of Object.entries(zip.files)) {
+      if (entry.dir) continue;
+      const fullPath = pathPrefix + entryPath;
+      if (/\.pdf$/i.test(entryPath)) {
+        const blob = await entry.async('blob');
+        results.push({ path: fullPath, blob });
+      } else if (/\.zip$/i.test(entryPath)) {
+        const nestedBlob = await entry.async('blob');
+        const nested = await extractAllPdfsFromZip(nestedBlob, fullPath + '/');
+        results.push(...nested);
+      }
+    }
+    return results;
+  }
+
+  function subjectFromImportPath(path) {
+    const firstSegment = path.split('/')[0];
+    if (firstSegment && /^[A-Za-z][A-Za-z0-9 &()-]{1,40}$/.test(firstSegment) && !/\.pdf$/i.test(firstSegment)) {
+      return firstSegment.trim();
+    }
+    return detectSubject(path);
+  }
+
+  document.getElementById('library-import-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (typeof JSZip === 'undefined') {
+      showStatus('Zip import engine failed to load — check your internet connection.', true);
+      return;
+    }
+
+    showStatus(`Reading "${file.name}"… this can take a while for large archives.`);
+    try {
+      const pdfs = await extractAllPdfsFromZip(file);
+      if (pdfs.length === 0) {
+        showStatus(`No PDFs found inside "${file.name}".`, true);
+        return;
+      }
+
+      const toDisk = !!databaseDirHandle;
+      showStatus(`Found ${pdfs.length} PDFs — importing ${toDisk ? 'to your PDFs folder' : 'to in-app storage'}…`);
+      let imported = 0;
+      for (const { path, blob } of pdfs) {
+        const name = path.split('/').pop();
+        const role = detectRole(name);
+        const subject = subjectFromImportPath(path);
+        const paperKey = extractPaperKey(name) || sanitizeForFilesystem(name.replace(/\.pdf$/i, ''));
+
+        if (toDisk) {
+          const paperDir = await getOrCreateNestedDir(databaseDirHandle, [subject, paperKey]);
+          const diskName = role === 'unknown' ? sanitizeForFilesystem(name) : `${role}.pdf`;
+          await fsWriteFile(paperDir, diskName, blob);
+        } else {
+          const entry = {
+            id: `${path}-${blob.size}`,
+            name, subject, isMarkScheme: role === 'markscheme', role, paperKey,
+            blob, addedAt: Date.now(),
+          };
+          await libraryPut(entry);
+        }
+        imported++;
+      }
+      showStatus(`Imported ${imported} PDFs from "${file.name}" ${toDisk ? 'into your PDFs folder' : 'into in-app storage'}.`);
+      if (toDisk) { dbBreadcrumbPath = []; await renderFileManager(); } else { await renderLibraryList(); }
+      rebuildMenuFocusList();
+    } catch (err) {
+      console.error(err);
+      showStatus(`Import failed: ${err.message}`, true);
+    }
+  });
+  document.getElementById('library-import-btn').addEventListener('click', () => {
+    document.getElementById('library-import-input').click();
+  });
+
+  splitToggleBtn.addEventListener('click', () => {
+    const nowSplit = !isSplit();
+    viewerArea.classList.toggle('split', nowSplit);
+    panes[1].el.hidden = !nowSplit;
+    switchPaneBtn.style.display = nowSplit ? 'block' : 'none';
+    splitToggleBtn.textContent = nowSplit ? '⬛ Split View: On' : '⬛⬛ Split View: Off';
+    if (!nowSplit) setActivePane(0);
+    showStatus(nowSplit ? 'Split view on.' : 'Split view off.');
+  });
+
+  switchPaneBtn.addEventListener('click', () => {
+    setActivePane(activePaneIndex === 0 ? 1 : 0);
+  });
+
+  let menuGrid = [];
+  let menuRow = 0;
+  let menuCol = 0;
+
+  function buildMenuGrid() {
+    const grid = [];
+    function walk(node) {
+      Array.from(node.children).forEach(child => {
+        if (!child.classList) return;
+        if (child.classList.contains('tab-row') || child.classList.contains('db-breadcrumb')) {
+          const btns = Array.from(child.querySelectorAll('button, input')).filter(b => b.offsetParent !== null);
+          if (btns.length) grid.push(btns);
+        } else if (child.tagName === 'BUTTON') {
+          if (child.offsetParent !== null) grid.push([child]);
+        } else if (child.id === 'tabs-list' || child.id === 'library-list' || child.id === 'db-filelist') {
+          walk(child);
+        }
+      });
+    }
+    walk(document.getElementById('menu-panel'));
+    return grid;
+  }
+
+  function rebuildMenuFocusList() {
+    menuGrid = buildMenuGrid();
+    menuRow = Math.min(menuRow, menuGrid.length - 1);
+    if (menuRow < 0) menuRow = 0;
+    menuCol = Math.min(menuCol, (menuGrid[menuRow]?.length || 1) - 1);
+    if (menuCol < 0) menuCol = 0;
+    setMenuFocus(menuRow, menuCol);
+  }
+
+  function setMenuFocus(row, col) {
+    menuGrid.forEach(r => r.forEach(el => el.classList.remove('focused')));
+    menuRow = Math.max(0, Math.min(row, menuGrid.length - 1));
+    const rowArr = menuGrid[menuRow] || [];
+    menuCol = Math.max(0, Math.min(col, rowArr.length - 1));
+    const el = rowArr[menuCol];
+    if (el) { el.classList.add('focused'); el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  function menuMove(dRow, dCol) {
+    if (dCol !== 0) {
+      setMenuFocus(menuRow, menuCol + dCol);
+      return;
+    }
+    const targetRow = Math.max(0, Math.min(menuRow + dRow, menuGrid.length - 1));
+    setMenuFocus(targetRow, menuCol);
+  }
+
+  function currentMenuFocused() {
+    return menuGrid[menuRow]?.[menuCol] || null;
+  }
+
+  function openMenu() {
+    renderTabsList();
+    renderLibraryList();
+    updateDbStatusHint();
+    renderFileManager();
+    menuOverlay.classList.add('open');
+    rebuildMenuFocusList();
+  }
+  function closeMenu() {
+    menuOverlay.classList.remove('open');
+  }
+  document.getElementById('menu-close').addEventListener('click', closeMenu);
+  document.getElementById('toolbar-menu').addEventListener('click', openMenu);
+  document.getElementById('toolbar-ai').addEventListener('click', openQuickAi);
+  document.getElementById('toolbar-split').addEventListener('click', () => {
+    const nowSplit = !isSplit();
+    viewerArea.classList.toggle('split', nowSplit);
+    panes[1].el.hidden = !nowSplit;
+    switchPaneBtn.style.display = nowSplit ? 'block' : 'none';
+    splitToggleBtn.textContent = nowSplit ? '⬛ Split View: On' : '⬛⬛ Split View: Off';
+    if (!nowSplit) setActivePane(0);
+    updateViewerToolbar();
+    showStatus(nowSplit ? 'Split view on.' : 'Split view off.');
+  });
+  document.getElementById('toolbar-zoom-out').addEventListener('click', () => adjustZoom(-1));
+  document.getElementById('toolbar-zoom-in').addEventListener('click', () => adjustZoom(1));
+
+  const aiOverlay = document.getElementById('ai-overlay');
+  const aiProviderSelect = document.getElementById('ai-provider');
+  const aiModelInput = document.getElementById('ai-model');
+  const aiEndpointRow = document.getElementById('ai-endpoint-row');
+  const aiEndpointInput = document.getElementById('ai-endpoint');
+  const aiKeyInput = document.getElementById('ai-key');
+  const aiQuestionInput = document.getElementById('ai-question');
+  const aiAskBtn = document.getElementById('ai-ask-btn');
+  const aiAnswerEl = document.getElementById('ai-answer');
+  const aiModelSelect = document.getElementById('ai-model-select');
+  const aiFetchModelsBtn = document.getElementById('ai-fetch-models-btn');
+  const aiModelHint = document.getElementById('ai-model-hint');
+  const aiCiteRow = document.getElementById('ai-cite-row');
+  const aiCiteJumpBtn = document.getElementById('ai-cite-jump');
+
+  const quickAiPanel = document.getElementById('quick-ai-panel');
+  const quickAiClose = document.getElementById('quick-ai-close');
+  const quickPresetList = document.getElementById('quick-preset-list');
+  const quickAiQuestion = document.getElementById('quick-ai-question');
+  const quickAiAsk = document.getElementById('quick-ai-ask');
+  const quickAiClearMemory = document.getElementById('quick-ai-clear-memory');
+  const quickAiClearDrawings = document.getElementById('quick-ai-clear-drawings');
+  const quickAiAnswer = document.getElementById('quick-ai-answer');
+  const quickAiBanner = document.getElementById('quick-ai-banner');
+  const quickAiCite = document.getElementById('quick-ai-cite');
+
+  let aiConversationHistory = [];
+
+  const QUICK_PRESETS = [
+    { icon: '🖥️', label: "What's on this page?", question: 'What is on the current page? Explain it clearly.' },
+    { icon: '🧮', label: 'Grade against mark scheme', question: 'Grade my understanding of this page strictly against the mark scheme, marking method and answer points separately.' },
+    { icon: '💡', label: 'Give me a hint (no answer)', question: 'Give me a hint toward solving this page without revealing the final answer.' },
+    { icon: '📝', label: 'Summarize this page', question: 'Summarize the key points of the current page in a few bullet points.' },
+  ];
+
+  function renderQuickPresets() {
+    quickPresetList.innerHTML = '';
+    QUICK_PRESETS.forEach(p => {
+      const btn = document.createElement('button');
+      btn.className = 'quick-preset-btn';
+      btn.tabIndex = 0;
+      btn.textContent = `${p.icon} ${p.label}`;
+      btn.addEventListener('click', () => runQuickQuestion(p.question));
+      quickPresetList.appendChild(btn);
+    });
+  }
+  renderQuickPresets();
+
+  const MODELS_LIST_ENDPOINTS = {
+    groq: 'https://api.groq.com/openai/v1/models',
+    openai: 'https://api.openai.com/v1/models',
+    grok: 'https://api.x.ai/v1/models',
+    claude: 'https://api.anthropic.com/v1/models',
+  };
+  const CHAT_ENDPOINTS = {
+    groq: 'https://api.groq.com/openai/v1/chat/completions',
+    openai: 'https://api.openai.com/v1/chat/completions',
+    grok: 'https://api.x.ai/v1/chat/completions',
+  };
+  const VISION_MODEL_PATTERN = /vision|vl-|-vl|image|4o|multimodal/i;
+
+  function guessCustomModelsEndpoint(chatEndpoint) {
+    if (!chatEndpoint) return null;
+    if (chatEndpoint.includes('/chat/completions')) return chatEndpoint.replace('/chat/completions', '/models');
+    return chatEndpoint.replace(/\/+$/, '') + '/models';
+  }
+
+  async function fetchModelsList() {
+    const provider = aiProviderSelect.value;
+    const apiKey = aiKeyInput.value.trim();
+    if (!apiKey) { aiModelHint.textContent = 'Enter an API key first, then tap "Fetch models".'; return; }
+
+    const url = provider === 'custom'
+      ? guessCustomModelsEndpoint(aiEndpointInput.value.trim())
+      : MODELS_LIST_ENDPOINTS[provider];
+
+    if (!url) { aiModelHint.textContent = 'Enter an endpoint URL first, then tap "Fetch models".'; return; }
+
+    aiModelHint.textContent = 'Fetching model list…';
+    try {
+      const headers = provider === 'claude'
+        ? { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }
+        : { 'Authorization': `Bearer ${apiKey}` };
+
+      const res = await fetch(url, { headers });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const data = await res.json();
+      const rawList = provider === 'claude' ? (data.data || []) : (data.data || data.models || []);
+      const ids = rawList.map(m => m.id || m.name).filter(Boolean).sort();
+      if (ids.length === 0) throw new Error('No models returned.');
+
+      aiModelSelect.innerHTML = '';
+      ids.forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = VISION_MODEL_PATTERN.test(id) ? `${id}  🖼️` : id;
+        aiModelSelect.appendChild(opt);
+      });
+
+      const current = aiModelInput.value.trim();
+      if (current && ids.includes(current)) aiModelSelect.value = current;
+
+      aiModelSelect.style.display = 'block';
+      aiModelInput.style.display = 'none';
+      aiModelHint.textContent = `${ids.length} model${ids.length === 1 ? '' : 's'} available. 🖼️ = vision support.`;
+
+      aiModelSelect.onchange = () => {
+        aiModelInput.value = aiModelSelect.value;
+        localStorage.setItem('wow-ai-model', aiModelInput.value);
+      };
+      if (aiModelSelect.value) {
+        aiModelInput.value = aiModelSelect.value;
+        localStorage.setItem('wow-ai-model', aiModelInput.value);
+      }
+    } catch (err) {
+      console.error(err);
+      aiModelHint.textContent = `Couldn't fetch models (${err.message}). You can still type a model name manually.`;
+      aiModelSelect.style.display = 'none';
+      aiModelInput.style.display = 'block';
+    }
+  }
+  aiFetchModelsBtn.addEventListener('click', fetchModelsList);
+
+  aiProviderSelect.addEventListener('change', () => {
+    aiModelSelect.style.display = 'none';
+    aiModelInput.style.display = 'block';
+    aiModelHint.textContent = 'Enter your API key above, then tap "Fetch models".';
+  });
+
+  aiProviderSelect.value = localStorage.getItem('wow-ai-provider') || 'claude';
+  aiModelInput.value = localStorage.getItem('wow-ai-model') || '';
+  aiEndpointInput.value = localStorage.getItem('wow-ai-endpoint') || '';
+  aiKeyInput.value = localStorage.getItem('wow-ai-key') || '';
+  function syncAiEndpointVisibility() {
+    aiEndpointRow.style.display = aiProviderSelect.value === 'custom' ? 'block' : 'none';
+  }
+  syncAiEndpointVisibility();
+  aiProviderSelect.addEventListener('change', () => {
+    localStorage.setItem('wow-ai-provider', aiProviderSelect.value);
+    syncAiEndpointVisibility();
+  });
+  aiModelInput.addEventListener('change', () => localStorage.setItem('wow-ai-model', aiModelInput.value));
+  aiEndpointInput.addEventListener('change', () => localStorage.setItem('wow-ai-endpoint', aiEndpointInput.value));
+  aiKeyInput.addEventListener('change', () => localStorage.setItem('wow-ai-key', aiKeyInput.value));
+
+  document.getElementById('menu-ai-open').addEventListener('click', () => {
+    closeMenu();
+    aiOverlay.classList.add('open');
+    rebuildAiFocusList();
+  });
+  document.getElementById('ai-close-btn').addEventListener('click', () => aiOverlay.classList.remove('open'));
+
+  async function extractPageText(pdfDoc, pageNum) {
+    const page = await pdfDoc.getPage(pageNum);
+    const content = await page.getTextContent();
+
+    const items = content.items
+      .filter(it => it.str !== undefined)
+      .map(it => ({ text: it.str, x: it.transform[4], y: it.transform[5], height: it.height || 10 }));
+
+    if (items.length === 0) return '';
+
+    items.sort((a, b) => b.y - a.y);
+    const lines = [];
+    let currentLine = [items[0]];
+    for (let i = 1; i < items.length; i++) {
+      const prev = currentLine[currentLine.length - 1];
+      const tolerance = Math.max(prev.height, items[i].height) * 0.5;
+      if (Math.abs(items[i].y - prev.y) <= tolerance) {
+        currentLine.push(items[i]);
+      } else {
+        lines.push(currentLine);
+        currentLine = [items[i]];
+      }
+    }
+    lines.push(currentLine);
+
+    return lines
+      .map(line => line.sort((a, b) => a.x - b.x).map(it => it.text).join(' '))
+      .join('\n');
+  }
+
+  function getCurrentPageImage(pane) {
+    const entry = pane.pageWraps.get(pane.currentPage);
+    if (!entry) return null;
+    return entry.canvas.toDataURL('image/png');
+  }
+
+  const CITE_TAG_RE = /\[MS_PAGE:(\d+)\]/g;
+  const HIGHLIGHT_TAG_RE = /\[HIGHLIGHT:([\d.]+),([\d.]+),([\d.]+),([\d.]+)(?:,page=(\d+))?\]/g;
+
+  function extractTagsFromText(rawText, defaultPage) {
+    let citedPage = null;
+    const m = CITE_TAG_RE.exec(rawText);
+    if (m) citedPage = parseInt(m[1], 10);
+    CITE_TAG_RE.lastIndex = 0;
+
+    const highlights = [];
+    let hm;
+    while ((hm = HIGHLIGHT_TAG_RE.exec(rawText)) !== null) {
+      highlights.push({
+        x: parseFloat(hm[1]), y: parseFloat(hm[2]), w: parseFloat(hm[3]), h: parseFloat(hm[4]),
+        page: hm[5] ? parseInt(hm[5], 10) : defaultPage,
+      });
+    }
+    HIGHLIGHT_TAG_RE.lastIndex = 0;
+
+    const cleanText = rawText.replace(CITE_TAG_RE, '').replace(HIGHLIGHT_TAG_RE, '').trim();
+    return { cleanText, citedPage, highlights };
+  }
+
+  async function getCachedPageText(doc, pageNum) {
+    if (!doc.pageTextCache) doc.pageTextCache = new Map();
+    if (!doc.pageTextCache.has(pageNum)) {
+      doc.pageTextCache.set(pageNum, await extractPageText(doc.pdfDoc, pageNum));
+    }
+    return doc.pageTextCache.get(pageNum);
+  }
+  async function getAllPagesText(doc) {
+    const texts = [];
+    for (let n = 1; n <= doc.pdfDoc.numPages; n++) texts.push(await getCachedPageText(doc, n));
+    return texts;
+  }
+
+  const STOPWORDS = new Set(['the','and','for','that','with','from','this','are','you','your','using',
+    'use','find','show','give','answer','page','marks','mark','scheme','write','question','total','when','where','into',
+    'correct','method','working','values','value','given','shown','clearly','substitution','required','obtain',
+    'obtained','stated','solution','fully','simplified','result','following','either','both','each','only']);
+  function significantTokens(text) {
+    return (text.toLowerCase().match(/[a-z]{4,}|\d+/g) || []).filter(t => !STOPWORDS.has(t));
+  }
+
+  function extractQuestionNumber(pageText) {
+    const trimmed = pageText.trim();
+    if (trimmed.length <= 20 && !trimmed.includes('\n')) {
+      const m = trimmed.match(/^\s*(?:[Qq]|[Qq]uestion)?\s*(\d{1,2})[a-zA-Z]?(?:[\s.)]|$)/);
+      return m ? m[1] : null;
+    }
+    const lines = pageText.split('\n');
+    for (const line of lines) {
+      const m = line.match(/^\s*(?:[Qq]|[Qq]uestion)?\s*(\d{1,2})[a-zA-Z]?(?:[\s.)]|$)/);
+      if (!m) continue;
+      const rest = line.slice(m[0].length).trim();
+      if (rest.length >= 4 || /[a-zA-Z]{3,}/.test(rest)) return m[1];
+    }
+    return null;
+  }
+
+  async function findRelevantMarkSchemePages(questionPageText, markSchemeDoc, maxPages = 2) {
+    const allTexts = await getAllPagesText(markSchemeDoc);
+    const qNum = extractQuestionNumber(questionPageText);
+    const qTokens = new Set(significantTokens(questionPageText));
+
+    const GRADE_CODE_RE = /\bd?[ABM]\d/i;
+    const docUsesGradeCodes = allTexts.some(t => GRADE_CODE_RE.test(t));
+
+    const scored = allTexts.map((text, idx) => {
+      let score = 0;
+      if (qNum) {
+        const qNumRe = new RegExp(`(^|\\n|\\s)(?:question\\s*)?${qNum}(?:[\\s.)(]|$)`, 'i');
+        if (qNumRe.test(text)) score += 15;
+      }
+      const pageTokenSet = new Set(significantTokens(text));
+      for (const t of qTokens) if (pageTokenSet.has(t)) score += 1;
+
+      if (docUsesGradeCodes && !GRADE_CODE_RE.test(text)) score -= 20;
+      return { pageNum: idx + 1, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const MIN_SCORE = 2;
+    const top = scored.filter(s => s.score >= MIN_SCORE).slice(0, maxPages);
+    return { topPages: top.map(s => s.pageNum), allTexts, totalPages: allTexts.length };
+  }
+
+  async function buildAiContext(pane, question, useVision) {
+    let msMissingReason = null;
+    let imageDataUrl = null;
+    let pageText = '';
+
+    let prompt = 'You are helping a student understand a page from a PDF (likely an exam or worksheet). ' +
+      'Be honest and precise. If you are given a mark scheme excerpt, ONLY cite a page with an [MS_PAGE:N] tag when the ' +
+      'content on that specific page actually discusses the same question — matching variables, numbers, or ' +
+      'structure, not just being nearby or the first page you have. If you cannot find a page that genuinely ' +
+      'matches, say so plainly instead of citing one anyway — a wrong citation is worse than no citation. ';
+
+    if (useVision) {
+      prompt += 'You have been given an image of the exact page the student is looking at — describe/answer based on what you actually see in it. ' +
+        'If you want to point at a specific region of THAT PAGE IMAGE, ' +
+        'you may include a tag like [HIGHLIGHT:0.12,0.30,0.40,0.10] using fractions (0 to 1) of the page image for x,y,width,height — only do this when you are confident about the location. ';
+    } else {
+      prompt += 'You do NOT have an image of the page — only extracted text, which can occasionally miss diagrams, ' +
+        'layout, or formatting. Note specifically: exponents/superscripts in the extracted text lose their ' +
+        'superscript formatting — "3t 2" or "3t2" right after a variable almost always means "3t²" (t squared), ' +
+        'not two separate numbers or a typo. Use mathematical context to disambiguate rather than taking spacing literally. ' +
+        'If the question seems to depend on something visual you cannot verify from text alone, say so plainly. ';
+    }
+
+    try {
+      pageText = await extractPageText(pane.pdfDoc, pane.currentPage);
+      prompt += `\n\nHere is the extracted text of the page the student is viewing (page ${pane.currentPage}):\n\n${pageText}\n\n`;
+    } catch (err) {
+      prompt += `\n\n(Text extraction for this page failed: ${err.message}. Rely on the image if provided, or tell the student you could not read the page text.)\n\n`;
+    }
+
+    if (useVision) {
+      imageDataUrl = getCurrentPageImage(pane);
+    }
+
+    const markSchemeDoc = docs.find(d => d.isMarkScheme);
+    if (!markSchemeDoc) {
+      msMissingReason = 'No file is marked as the Mark Scheme, so I am answering without one.';
+    } else {
+      try {
+        const { topPages, allTexts, totalPages } = await findRelevantMarkSchemePages(pageText, markSchemeDoc, 2);
+        if (topPages.length === 0) {
+          msMissingReason = `A mark scheme is marked, but an internal search across all ${totalPages} of its pages found no page that appears to match this question — answering without one rather than guessing.`;
+        } else {
+          const msExcerpt = topPages.map(n => `[Page ${n}]\n${allTexts[n - 1]}`).join('\n\n');
+          prompt += `An internal search matched this question to page(s) ${topPages.join(', ')} of the mark scheme ` +
+            `(out of ${totalPages} pages total) — here is ONLY that relevant excerpt, not the full document. ` +
+            `Grade against it exactly; tag your answer with [MS_PAGE:N] using one of these page numbers if you use it:\n\n${msExcerpt}\n\n`;
+        }
+      } catch (err) {
+        msMissingReason = `The mark scheme file could not be read (${err.message}), so I am answering without one — there is a chance this answer is wrong.`;
+      }
+    }
+
+    if (msMissingReason) {
+      prompt += `\n\nIMPORTANT: ${msMissingReason} You must clearly tell the student this up front in your answer, ` +
+        `in your own words, before attempting to answer — do not silently guess as if you had the mark scheme.\n\n`;
+    }
+
+    if (aiConversationHistory.length) {
+      const recent = aiConversationHistory.slice(-6)
+        .map(m => `${m.role === 'user' ? 'Student' : 'You'}: ${m.content}`).join('\n');
+      prompt += `Recent conversation for context:\n${recent}\n\n`;
+    }
+
+    prompt += `Student's question: ${question}`;
+    return { prompt, imageDataUrl, msMissingReason };
+  }
+
+  async function streamAI({ provider, model, endpoint, apiKey, prompt, imageDataUrl }, onToken) {
+    if (!apiKey) throw new Error('Enter an API key first.');
+
+    if (provider === 'claude') {
+      const content = imageDataUrl
+        ? [
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: imageDataUrl.split(',')[1] } },
+            { type: 'text', text: prompt },
+          ]
+        : prompt;
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: model || 'claude-sonnet-5',
+          max_tokens: 1024,
+          stream: true,
+          messages: [{ role: 'user', content }],
+        }),
+      });
+      if (!res.ok || !res.body) throw new Error(`Claude API error ${res.status}: ${await res.text().catch(() => res.statusText)}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let full = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'content_block_delta' && evt.delta?.text) {
+              full += evt.delta.text;
+              onToken(evt.delta.text);
+            }
+          } catch { }
+        }
+      }
+      return full;
+    }
+
+    const url = provider === 'groq' || provider === 'openai' || provider === 'grok'
+      ? CHAT_ENDPOINTS[provider]
+      : endpoint;
+    if (!url) throw new Error('Enter an endpoint URL for the custom provider.');
+    if (!model) throw new Error('Pick a model first — fetch the model list and choose one.');
+
+    const userContent = imageDataUrl
+      ? [ { type: 'text', text: prompt }, { type: 'image_url', image_url: { url: imageDataUrl } } ]
+      : prompt;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages: [{ role: 'user', content: userContent }],
+      }),
+    });
+    if (!res.ok || !res.body) throw new Error(`API error ${res.status}: ${await res.text().catch(() => res.statusText)}`);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let full = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') continue;
+        try {
+          const evt = JSON.parse(payload);
+          const delta = evt.choices?.[0]?.delta?.content;
+          if (delta) { full += delta; onToken(delta); }
+        } catch { }
+      }
+    }
+    return full;
+  }
+
+  function currentAiSettings() {
+    return {
+      provider: aiProviderSelect.value,
+      model: aiModelInput.value.trim(),
+      endpoint: aiEndpointInput.value.trim(),
+      apiKey: aiKeyInput.value.trim(),
+    };
+  }
+
+  function mdToHtml(text) {
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    html = convertMarkdownTables(html);
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
+    html = html.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+    return html;
+  }
+
+  function convertMarkdownTables(text) {
+    const lines = text.split('\n');
+    const isRow = (l) => /^\s*\|.*\|\s*$/.test(l);
+    const isSeparator = (l) => /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(l);
+    const splitRow = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+
+    const out = [];
+    let i = 0;
+    while (i < lines.length) {
+      if (isRow(lines[i]) && lines[i + 1] !== undefined && isSeparator(lines[i + 1])) {
+        const header = splitRow(lines[i]);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && isRow(lines[i])) { rows.push(splitRow(lines[i])); i++; }
+        let table = '<table class="md-table"><thead><tr>' + header.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+        rows.forEach(r => { table += '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>'; });
+        table += '</tbody></table>';
+        out.push(table);
+      } else {
+        out.push(lines[i]);
+        i++;
+      }
+    }
+    return out.join('\n');
+  }
+
+  function setAnswerContent(el, text) {
+    el.innerHTML = mdToHtml(text);
+  }
+
+  function renderMath(el) {
+    if (typeof renderMathInElement !== 'function') return;
+    try {
+      renderMathInElement(el, {
+        delimiters: [
+          { left: '$$', right: '$$', display: true },
+          { left: '\\[', right: '\\]', display: true },
+          { left: '\\(', right: '\\)', display: false },
+          { left: '$', right: '$', display: false },
+        ],
+        throwOnError: false,
+      });
+    } catch (e) { console.error('Math render error', e); }
+  }
+
+  aiAskBtn.addEventListener('click', async () => {
+    const pane = activePane();
+    if (!pane.pdfDoc) {
+      aiAnswerEl.textContent = 'Open a PDF in the active pane first.';
+      aiAnswerEl.classList.add('show', 'error');
+      return;
+    }
+    const question = aiQuestionInput.value.trim();
+    if (!question) {
+      aiAnswerEl.textContent = 'Type a question first.';
+      aiAnswerEl.classList.add('show', 'error');
+      return;
+    }
+
+    const settings = currentAiSettings();
+    const useVision = VISION_MODEL_PATTERN.test(settings.model || '');
+
+    aiAnswerEl.classList.remove('error');
+    aiAnswerEl.classList.add('show');
+    aiAnswerEl.textContent = '';
+    aiCiteRow.classList.remove('show');
+    document.getElementById('ai-scroll-row').classList.remove('show');
+
+    try {
+      aiAnswerEl.textContent = 'Reading the page…';
+      const { prompt, imageDataUrl } = await buildAiContext(pane, question, useVision);
+      aiAnswerEl.textContent = '';
+
+      let raw = '';
+      await streamAI({ ...settings, prompt, imageDataUrl }, (chunk) => {
+        raw += chunk;
+        const { cleanText } = extractTagsFromText(raw, pane.currentPage);
+        setAnswerContent(aiAnswerEl, cleanText);
+      });
+
+      const { cleanText, citedPage, highlights } = extractTagsFromText(raw, pane.currentPage);
+      setAnswerContent(aiAnswerEl, cleanText);
+      renderMath(aiAnswerEl);
+      document.getElementById('ai-scroll-row').classList.add('show');
+      aiConversationHistory.push({ role: 'user', content: question }, { role: 'assistant', content: cleanText });
+
+      highlights.forEach(h => drawHighlight(pane, h.page, h.x, h.y, h.w, h.h));
+
+      if (citedPage != null) {
+        aiCiteJumpBtn.textContent = `📍 View mark scheme page ${citedPage} (the file marked 📑, not this question paper) — used to answer this`;
+        aiCiteJumpBtn.onclick = () => jumpToMarkSchemePage(citedPage);
+        aiCiteRow.classList.add('show');
+      }
+      rebuildAiFocusList();
+    } catch (err) {
+      console.error(err);
+      const looksLikeCors = err instanceof TypeError;
+      aiAnswerEl.classList.add('error');
+      aiAnswerEl.textContent = looksLikeCors
+        ? `Request blocked before reaching the server — almost certainly CORS. ${aiProviderSelect.value === 'claude' ? 'Double-check the API key.' : 'This provider likely needs a small server-side proxy to call from a browser app.'}`
+        : `Error: ${err.message}`;
+      rebuildAiFocusList();
+    }
+  });
+
+  async function jumpToMarkSchemePage(pageNum) {
+    const msDoc = docs.find(d => d.isMarkScheme);
+    if (!msDoc) { showStatus('No mark scheme is marked.', true); return; }
+
+    let msPane = panes.find(p => p.docId === msDoc.id);
+    if (!msPane) {
+      if (!isSplit()) {
+        viewerArea.classList.add('split');
+        panes[1].el.hidden = false;
+        switchPaneBtn.style.display = 'block';
+        splitToggleBtn.textContent = '⬛ Split View: On';
+      }
+      const targetIndex = activePaneIndex === 0 ? 1 : 0;
+      await assignDocToPane(targetIndex, msDoc.id);
+      msPane = panes[targetIndex];
+    }
+    await jumpPaneToPage(msPane, pageNum);
+    showStatus(`Jumped to mark scheme page ${pageNum}.`);
+  }
+
+  let aiFocusables = [];
+  let aiFocusIndex = 0;
+
+  function rebuildAiFocusList() {
+    const previouslyFocused = aiFocusables[aiFocusIndex];
+    aiFocusables = Array.from(document.querySelectorAll('#ai-panel .ai-input, #ai-panel .menu-btn, #ai-panel select'))
+      .filter(el => el.offsetParent !== null);
+    const stillThereIndex = previouslyFocused ? aiFocusables.indexOf(previouslyFocused) : -1;
+    setAiFocus(stillThereIndex >= 0 ? stillThereIndex : 0);
+  }
+  function setAiFocus(i) {
+    aiFocusables.forEach(el => el.classList.remove('focused'));
+    aiFocusIndex = Math.max(0, Math.min(i, aiFocusables.length - 1));
+    const el = aiFocusables[aiFocusIndex];
+    if (el) { el.classList.add('focused'); el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'nearest' }); }
+  }
+  document.getElementById('ai-scroll-up').addEventListener('click', () => aiAnswerEl.scrollBy({ top: -SCROLL_STEP, behavior: 'smooth' }));
+  document.getElementById('ai-scroll-down').addEventListener('click', () => aiAnswerEl.scrollBy({ top: SCROLL_STEP, behavior: 'smooth' }));
+
+  function showQuickBanner(msg) {
+    if (!msg) { quickAiBanner.classList.remove('show'); return; }
+    quickAiBanner.textContent = `⚠️ ${msg}`;
+    quickAiBanner.classList.add('show');
+  }
+
+  async function runQuickQuestion(question) {
+    const pane = activePane();
+    const scrollRow = document.getElementById('quick-ai-scroll-row');
+    if (!pane.pdfDoc) {
+      quickAiAnswer.textContent = 'Open a PDF in the active pane first.';
+      quickAiAnswer.classList.add('show', 'error');
+      quickAiPanel.classList.add('has-answer');
+      rebuildQuickFocusList();
+      return;
+    }
+    const settings = currentAiSettings();
+    if (!settings.apiKey) {
+      quickAiAnswer.classList.add('show', 'error');
+      quickAiAnswer.textContent = 'No API key configured yet. Open the full menu → AI Assist to set your provider and key once.';
+      quickAiPanel.classList.add('has-answer');
+      rebuildQuickFocusList();
+      return;
+    }
+
+    const useVision = VISION_MODEL_PATTERN.test(settings.model || '');
+    quickAiAnswer.classList.remove('error');
+    quickAiAnswer.classList.add('show');
+    quickAiPanel.classList.add('has-answer');
+    quickAiAnswer.textContent = '';
+    quickAiCite.classList.remove('show');
+    scrollRow.classList.remove('show');
+    showQuickBanner(null);
+    rebuildQuickFocusList();
+
+    try {
+      quickAiAnswer.textContent = 'Reading the page…';
+      const { prompt, imageDataUrl, msMissingReason } = await buildAiContext(pane, question, useVision);
+      if (msMissingReason) showQuickBanner(msMissingReason);
+      if (!useVision) showQuickBanner((msMissingReason ? msMissingReason + ' ' : '') + 'Also note: current model is text-only, so it is reading extracted page text, not seeing the page.');
+      quickAiAnswer.textContent = '';
+
+      let raw = '';
+      await streamAI({ ...settings, prompt, imageDataUrl }, (chunk) => {
+        raw += chunk;
+        const { cleanText } = extractTagsFromText(raw, pane.currentPage);
+        setAnswerContent(quickAiAnswer, cleanText);
+        quickAiAnswer.scrollTop = quickAiAnswer.scrollHeight;
+      });
+
+      const { cleanText, citedPage, highlights } = extractTagsFromText(raw, pane.currentPage);
+      setAnswerContent(quickAiAnswer, cleanText);
+      renderMath(quickAiAnswer);
+      scrollRow.classList.add('show');
+      aiConversationHistory.push({ role: 'user', content: question }, { role: 'assistant', content: cleanText });
+
+      if (highlights.length && !useVision) {
+        showQuickBanner((msMissingReason ? msMissingReason + ' ' : '') + "This model can't actually see the page, so drawing on it isn't reliable — skipped.");
+      } else {
+        highlights.forEach(h => drawHighlight(pane, h.page, h.x, h.y, h.w, h.h));
+      }
+
+      if (citedPage != null) {
+        quickAiCite.textContent = `📍 View mark scheme page ${citedPage} (the file marked 📑, not this question paper) — used to answer this`;
+        quickAiCite.onclick = () => jumpToMarkSchemePage(citedPage);
+        quickAiCite.classList.add('show');
+      }
+      rebuildQuickFocusList();
+    } catch (err) {
+      console.error(err);
+      const looksLikeCors = err instanceof TypeError;
+      quickAiAnswer.classList.add('error');
+      quickAiAnswer.textContent = looksLikeCors
+        ? `Request blocked before reaching the server (likely CORS). ${settings.provider === 'claude' ? 'Double-check the API key.' : 'This provider may need a server-side proxy.'}`
+        : `Error: ${err.message}`;
+      rebuildQuickFocusList();
+    }
+  }
+
+  document.getElementById('quick-ai-scroll-up').addEventListener('click', () => quickAiAnswer.scrollBy({ top: -SCROLL_STEP, behavior: 'smooth' }));
+  document.getElementById('quick-ai-scroll-down').addEventListener('click', () => quickAiAnswer.scrollBy({ top: SCROLL_STEP, behavior: 'smooth' }));
+
+  quickAiAsk.addEventListener('click', () => {
+    const q = quickAiQuestion.value.trim();
+    if (!q) return;
+    runQuickQuestion(q);
+    quickAiQuestion.value = '';
+  });
+
+  quickAiClearMemory.addEventListener('click', () => {
+    aiConversationHistory = [];
+    showStatus('AI memory cleared.');
+  });
+  quickAiClearDrawings.addEventListener('click', () => {
+    clearAllHighlights();
+    showStatus('Drawings cleared.');
+  });
+
+  function openQuickAi() {
+    quickAiPanel.classList.add('open');
+    rebuildQuickFocusList();
+  }
+  function closeQuickAi() {
+    quickAiPanel.classList.remove('open');
+  }
+  quickAiClose.addEventListener('click', closeQuickAi);
+
+  let quickFocusables = [];
+  let quickFocusIndex = 0;
+  function rebuildQuickFocusList() {
+    const previouslyFocused = quickFocusables[quickFocusIndex];
+    quickFocusables = Array.from(quickAiPanel.querySelectorAll('button, input, #quick-ai-cite'))
+      .filter(el => el.offsetParent !== null);
+    const stillThereIndex = previouslyFocused ? quickFocusables.indexOf(previouslyFocused) : -1;
+    setQuickFocus(stillThereIndex >= 0 ? stillThereIndex : 0);
+  }
+  function setQuickFocus(i) {
+    quickFocusables.forEach(el => el.classList.remove('focused'));
+    quickFocusIndex = Math.max(0, Math.min(i, quickFocusables.length - 1));
+    const el = quickFocusables[quickFocusIndex];
+    if (el) { el.classList.add('focused'); el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  window.addEventListener('wheel', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || !viewerArea.classList.contains('active')) return;
+    e.preventDefault();
+    if (e.deltaY > 0) {
+      adjustZoom(-1);
+    } else {
+      adjustZoom(1);
+    }
+  }, { passive: false });
+
+  let tapCount = 0;
+  let tapTimer = null;
+
+  document.addEventListener('keydown', (e) => {
+    const isTextField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName || '');
+    const isDesktopShortcut = e.ctrlKey || e.metaKey;
+
+    if (isDesktopShortcut && !isTextField) {
+      const key = e.key.toLowerCase();
+      if (key === 'o') { e.preventDefault(); triggerFileOpen(); return; }
+      if (key === 'm') { e.preventDefault(); openMenu(); return; }
+      if (key === 'a' && e.shiftKey) { e.preventDefault(); openQuickAi(); return; }
+      if (key === '+' || key === '=' || key === 'pageup') { e.preventDefault(); adjustZoom(1); return; }
+      if (key === '-' || key === '_' || key === 'pagedown') { e.preventDefault(); adjustZoom(-1); return; }
+    }
+
+    if ((e.altKey || e.ctrlKey || e.metaKey) && !isTextField && e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (isSplit()) setActivePane(activePaneIndex === 0 ? 1 : 0);
+      else showStatus('Split view is off — open the menu to turn it on.', true);
+      return;
+    }
+
+    if ((e.altKey || e.ctrlKey || e.metaKey) && !isTextField && e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (isSplit()) setActivePane(activePaneIndex === 0 ? 1 : 0);
+      else showStatus('Split view is off — open the menu to turn it on.', true);
+      return;
+    }
+
+    if (quickAiPanel.classList.contains('open')) {
+      if (document.activeElement === quickAiQuestion) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); setQuickFocus(quickFocusIndex + 1); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); setQuickFocus(quickFocusIndex - 1); return; }
+        if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); closeQuickAi(); return; }
+        return;
+      }
+
+      if (e.key === 'ArrowDown') { e.preventDefault(); setQuickFocus(quickFocusIndex + 1); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setQuickFocus(quickFocusIndex - 1); return; }
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        quickFocusables[quickFocusIndex]?.click();
+        rebuildQuickFocusList();
+        return;
+      }
+      if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); closeQuickAi(); return; }
+      return;
+    }
+
+    if (aiOverlay.classList.contains('open')) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setAiFocus(aiFocusIndex + 1); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setAiFocus(aiFocusIndex - 1); return; }
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        const el = document.activeElement;
+        if (el.tagName === 'BUTTON') el.click();
+        return;
+      }
+      if (e.key === 'Escape') { e.preventDefault(); aiOverlay.classList.remove('open'); return; }
+      if (e.key === 'Backspace' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); aiOverlay.classList.remove('open'); return; }
+      return;
+    }
+
+    if (menuOverlay.classList.contains('open')) {
+      const focused = currentMenuFocused();
+      const onInput = focused && focused.tagName === 'INPUT';
+
+      if (e.key === 'ArrowDown') { e.preventDefault(); menuMove(1, 0); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); menuMove(-1, 0); return; }
+      if (e.key === 'ArrowRight') { if (onInput) return; e.preventDefault(); menuMove(0, 1); return; }
+      if (e.key === 'ArrowLeft') { if (onInput) return; e.preventDefault(); menuMove(0, -1); return; }
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        if (onInput) {
+          const btn = menuGrid[menuRow]?.find(el => el.tagName === 'BUTTON');
+          btn?.click();
+        } else {
+          focused?.click();
+        }
+        rebuildMenuFocusList();
+        return;
+      }
+      if (e.key === 'Backspace' && onInput) return;
+      if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); closeMenu(); return; }
+      return;
+    }
+
+    if (!viewerArea.classList.contains('active')) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBtn.click(); }
+      return;
+    }
+
+    if (e.key === 'm' || e.key === 'M') {
+      e.preventDefault();
+      openMenu();
+      return;
+    }
+    if (e.key === 'a' || e.key === 'A') {
+      e.preventDefault();
+      openQuickAi();
+      return;
+    }
+    if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      const nowSplit = !isSplit();
+      viewerArea.classList.toggle('split', nowSplit);
+      panes[1].el.hidden = !nowSplit;
+      switchPaneBtn.style.display = nowSplit ? 'block' : 'none';
+      splitToggleBtn.textContent = nowSplit ? '⬛ Split View: On' : '⬛⬛ Split View: Off';
+      if (!nowSplit) setActivePane(0);
+      updateViewerToolbar();
+      showStatus(nowSplit ? 'Split view on.' : 'Split view off.');
+      return;
+    }
+    if (e.key === '+' || e.key === '=') {
+      e.preventDefault();
+      adjustZoom(1);
+      return;
+    }
+    if (e.key === '-') {
+      e.preventDefault();
+      adjustZoom(-1);
+      return;
+    }
+
+    const navKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+    if (navKeys.includes(e.key)) {
+      e.preventDefault();
+      const dx = e.key === 'ArrowLeft' ? -PAN_STEP : e.key === 'ArrowRight' ? PAN_STEP : 0;
+      const dy = e.key === 'ArrowUp' ? -PAN_STEP : e.key === 'ArrowDown' ? PAN_STEP : 0;
+      activePane().el.scrollBy({ left: dx, top: dy, behavior: 'auto' });
+      return;
+    }
+
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      tapCount++;
+      clearTimeout(tapTimer);
+      tapTimer = setTimeout(async () => {
+        const pane = activePane();
+        if (tapCount === 7) {
+          openQuickAi();
+        } else if (tapCount === 5 || tapCount === 6) {
+          openMenu();
+        } else if (tapCount === 4) {
+          if (isSplit()) {
+            setActivePane(activePaneIndex === 0 ? 1 : 0);
+            showStatus(`Active pane: ${activePaneIndex === 0 ? 'A' : 'B'}`);
+          } else {
+            showStatus('Split view is off — nothing to switch.');
+          }
+        } else if (tapCount === 3) {
+          if (pane.zoomIndex > 0) {
+            pane.zoomIndex--;
+            await rerenderPane(pane);
+            showStatus(`Zoomed out — ${Math.round(ZOOM_STEPS[pane.zoomIndex] * 100)}%`);
+          } else {
+            showStatus('Already at minimum zoom.');
+          }
+        } else if (tapCount === 2) {
+          if (pane.zoomIndex < ZOOM_STEPS.length - 1) {
+            pane.zoomIndex++;
+            await rerenderPane(pane);
+            showStatus(`Zoomed in — ${Math.round(ZOOM_STEPS[pane.zoomIndex] * 100)}%`);
+          } else {
+            showStatus('Already at maximum zoom.');
+          }
+        } else if (tapCount >= 8) {
+          showStatus('Unrecognized tap count — try 2, 3, 4, 5, or 7 taps.');
+        }
+        tapCount = 0;
+      }, TAP_WINDOW_MS);
+      return;
+    }
+
+    if (e.key === 'Escape' || e.key === 'Backspace') {
+      e.preventDefault();
+      viewerArea.classList.remove('active');
+      updateViewerToolbar();
+      openScreen.classList.remove('hidden');
+      openBtn.focus({ preventScroll: true });
+    }
+  });
+
+  if (typeof pdfjsLib === 'undefined') {
+    showStatus('PDF engine did not load — check your internet connection and refresh.', true);
+  }
+
+  tryReconnectDatabaseFolderSilently();
+  loadEmbeddedDatabaseFromPage();
+  loadManifest().then(() => updateDbStatusHint());
+  updateDbStatusHint();
+})();
+
+</script>
+</body>
+</html>

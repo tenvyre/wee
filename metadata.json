@@ -1,0 +1,7 @@
+{
+  "name": "Wow PDF",
+  "description": "Embedded PDF viewer with AI assist, split view, file manager, document upload, and download capabilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
