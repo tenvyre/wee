@@ -3,6 +3,8 @@ name: Build Android APK
 on:
   push:
     branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
   workflow_dispatch:
 
 jobs:
@@ -24,12 +26,16 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Restore debug keystore
+      - name: Ensure debug keystore exists
         run: |
           if [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
-            echo "Debug keystore restored."
           fi
+          if [ ! -f debug.keystore ]; then
+            echo "Generating debug keystore..."
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          echo "debug.keystore is ready."
 
       - name: Build Debug APK
         run: gradle assembleDebug --stacktrace
